@@ -10,6 +10,7 @@ import {
   placeTrailingStopOrder,
   marketClose,
   unlockOperating,
+  placeAtomicDualWithStops,
 } from "../src/core/order-coordinator";
 
 const baseOrder: AsterOrder = {
@@ -173,6 +174,39 @@ describe("order-coordinator", () => {
     );
     expect(adapter.createOrder).toHaveBeenCalled();
     expect(log).toHaveBeenCalledWith("close", expect.stringContaining("市价平仓"));
+  });
+
+  it("places atomic dual with optional stops using bulk when available", async () => {
+    const createdOrders: AsterOrder[] = [
+      { ...baseOrder, orderId: 11, side: "BUY", price: "100", type: "LIMIT" },
+      { ...baseOrder, orderId: 12, side: "SELL", price: "101", type: "LIMIT" },
+      { ...baseOrder, orderId: 13, side: "SELL", type: "STOP_MARKET", stopPrice: "99" },
+      { ...baseOrder, orderId: 14, side: "BUY", type: "STOP_MARKET", stopPrice: "102", },
+    ];
+    const adapter = createMockExchange({
+      id: "grvt",
+      // @ts-expect-error test-only hook
+      createBulkOrders: vi.fn(async () => createdOrders),
+    } as any);
+    const locks: OrderLockMap = {};
+    const timers: OrderTimerMap = {};
+    const pending: OrderPendingMap = {};
+    const log = vi.fn();
+    const result = await placeAtomicDualWithStops(
+      adapter,
+      "BTCUSDT",
+      [],
+      locks,
+      timers,
+      pending,
+      { price: "100", amount: 1 },
+      { price: "101", amount: 1 },
+      log,
+      { markPrice: 100.5, maxPct: 0.1, lossLimitUsd: 1, priceTick: 0.1, qtyStep: 0.001, attachStops: true }
+    );
+    expect((adapter as any).createBulkOrders).toHaveBeenCalled();
+    expect(result?.length).toBe(4);
+    expect(log).toHaveBeenCalledWith("order", expect.stringContaining("GRVT 原子挂单"));
   });
 
   it("unlockOperating clears timers and pending", () => {

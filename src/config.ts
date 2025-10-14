@@ -90,6 +90,7 @@ export interface MakerConfig {
   maxLogEntries: number;
   maxCloseSlippagePct: number;
   priceTick: number;
+  grvtAtomicMakerEnabled?: boolean;
 }
 
 export const makerConfig: MakerConfig = {
@@ -105,6 +106,12 @@ export const makerConfig: MakerConfig = {
     0.05
   ),
   priceTick: parseNumber(process.env.MAKER_PRICE_TICK ?? process.env.PRICE_TICK, 0.1),
+  grvtAtomicMakerEnabled: (() => {
+    const raw = process.env.GRVT_ATOMIC_MAKER_ENABLED;
+    if (!raw) return true;
+    const n = raw.trim().toLowerCase();
+    return n === "1" || n === "true" || n === "yes" || n === "on";
+  })(),
 };
 
 export interface BasisArbConfig {

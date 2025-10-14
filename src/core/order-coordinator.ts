@@ -1,6 +1,7 @@
 import type { ExchangeAdapter } from "../exchanges/adapter";
 import type { AsterOrder, CreateOrderParams } from "../exchanges/types";
 import { roundDownToTick, roundQtyDownToStep, formatPriceToString } from "../utils/math";
+import { calcStopLossPrice } from "../utils/strategy";
 import { isUnknownOrderError } from "../utils/errors";
 import { isOrderPriceAllowedByMark } from "../utils/strategy";
 
@@ -326,6 +327,186 @@ export async function placeTrailingStopOrder(
     unlockOperating(locks, timers, pendings, type);
     if (isUnknownOrderError(err)) {
       log("order", "动态止盈单已失效，跳过");
+      return undefined;
+    }
+    throw err;
+  }
+}
+
+type AtomicDualGuardOptions = OrderGuardOptions & {
+  lossLimitUsd: number;
+  priceTick: number;
+  qtyStep: number;
+  attachStops: boolean;
+};
+
+/**
+ * Atomically place BUY and SELL limit orders together on GRVT, with optional OSO stop-loss per leg.
+ * Falls back to sequential placement if bulk API is unavailable.
+ */
+export async function placeAtomicDualWithStops(
+  adapter: ExchangeAdapter,
+  symbol: string,
+  openOrders: AsterOrder[],
+  locks: OrderLockMap,
+  timers: OrderTimerMap,
+  pendings: OrderPendingMap,
+  buy: { price: string; amount: number },
+  sell: { price: string; amount: number },
+  log: LogHandler,
+  guard: AtomicDualGuardOptions
+): Promise<AsterOrder[] | undefined> {
+  const type = "LIMIT";
+  if (isOperating(locks, type)) return;
+
+  const buyPrice = Number(buy.price);
+  const sellPrice = Number(sell.price);
+  if (!enforceMarkPriceGuard("BUY", buyPrice, guard, log, "原子挂单(BUY)")) return;
+  if (!enforceMarkPriceGuard("SELL", sellPrice, guard, log, "原子挂单(SELL)")) return;
+
+  // Deduplicate existing LIMITs per side before placement
+  await deduplicateOrders(adapter, symbol, openOrders, locks, timers, pendings, type, "BUY", log);
+  await deduplicateOrders(adapter, symbol, openOrders, locks, timers, pendings, type, "SELL", log);
+
+  const hasBulk = (adapter as any)?.createBulkOrders && adapter.id === "grvt";
+  lockOperating(locks, timers, pendings, type, log);
+
+  try {
+    const paramsList: CreateOrderParams[] = [];
+    // Entry BUY
+    paramsList.push({
+      symbol,
+      side: "BUY",
+      type: "LIMIT",
+      quantity: roundQtyDownToStep(buy.amount, guard.qtyStep),
+      price: buyPrice,
+      timeInForce: "GTX",
+    });
+    // Entry SELL
+    paramsList.push({
+      symbol,
+      side: "SELL",
+      type: "LIMIT",
+      quantity: roundQtyDownToStep(sell.amount, guard.qtyStep),
+      price: sellPrice,
+      timeInForce: "GTX",
+    });
+
+    if (guard.attachStops) {
+      // OSO stop for long (BUY entry): SELL STOP at entry - loss/qty
+      const longQty = roundQtyDownToStep(buy.amount, guard.qtyStep);
+      const longStop = roundDownToTick(
+        calcStopLossPrice(buyPrice, longQty, "long", guard.lossLimitUsd),
+        guard.priceTick
+      );
+      paramsList.push({
+        symbol,
+        side: "SELL",
+        type: "STOP_MARKET",
+        quantity: longQty,
+        stopPrice: longStop,
+        reduceOnly: "true",
+        closePosition: "true",
+        timeInForce: "GTC",
+        triggerType: "STOP_LOSS",
+      });
+
+      // OSO stop for short (SELL entry): BUY STOP at entry + loss/qty
+      const shortQty = roundQtyDownToStep(sell.amount, guard.qtyStep);
+      const shortStop = roundDownToTick(
+        calcStopLossPrice(sellPrice, shortQty, "short", guard.lossLimitUsd),
+        guard.priceTick
+      );
+      paramsList.push({
+        symbol,
+        side: "BUY",
+        type: "STOP_MARKET",
+        quantity: shortQty,
+        stopPrice: shortStop,
+        reduceOnly: "true",
+        closePosition: "true",
+        timeInForce: "GTC",
+        // GRVT uses TAKE_PROFIT for BUY-side triggers closing shorts
+        triggerType: "TAKE_PROFIT",
+      });
+    }
+
+    if (hasBulk) {
+      try {
+        const created: AsterOrder[] = await (adapter as any).createBulkOrders(paramsList);
+        const ids = created.map((o) => String(o.orderId));
+        pendings[type] = ids[0] ?? null;
+        log(
+          "order",
+          `GRVT 原子挂单: BUY@${buyPrice} SELL@${sellPrice}` + (guard.attachStops ? " + OSO止损" : "")
+        );
+        return created;
+      } catch (bulkError) {
+        // Fallback to sequential if bulk API is not available
+        log("warn", `GRVT 原子挂单失败，回退顺序挂单: ${String(bulkError)}`);
+      }
+    }
+
+    // Fallback: sequential placement
+    const placed: AsterOrder[] = [];
+    const buyOrder = await adapter.createOrder({
+      symbol,
+      side: "BUY",
+      type: "LIMIT",
+      quantity: roundQtyDownToStep(buy.amount, guard.qtyStep),
+      price: buyPrice,
+      timeInForce: "GTX",
+    });
+    placed.push(buyOrder);
+    const sellOrder = await adapter.createOrder({
+      symbol,
+      side: "SELL",
+      type: "LIMIT",
+      quantity: roundQtyDownToStep(sell.amount, guard.qtyStep),
+      price: sellPrice,
+      timeInForce: "GTX",
+    });
+    placed.push(sellOrder);
+
+    if (guard.attachStops) {
+      await adapter.createOrder({
+        symbol,
+        side: "SELL",
+        type: "STOP_MARKET",
+        quantity: roundQtyDownToStep(buy.amount, guard.qtyStep),
+        stopPrice: roundDownToTick(
+          calcStopLossPrice(buyPrice, roundQtyDownToStep(buy.amount, guard.qtyStep), "long", guard.lossLimitUsd),
+          guard.priceTick
+        ),
+        reduceOnly: "true",
+        closePosition: "true",
+        timeInForce: "GTC",
+        triggerType: "STOP_LOSS",
+      });
+      await adapter.createOrder({
+        symbol,
+        side: "BUY",
+        type: "STOP_MARKET",
+        quantity: roundQtyDownToStep(sell.amount, guard.qtyStep),
+        stopPrice: roundDownToTick(
+          calcStopLossPrice(sellPrice, roundQtyDownToStep(sell.amount, guard.qtyStep), "short", guard.lossLimitUsd),
+          guard.priceTick
+        ),
+        reduceOnly: "true",
+        closePosition: "true",
+        timeInForce: "GTC",
+        triggerType: "STOP_LOSS",
+      });
+    }
+
+    const firstId = placed[0]?.orderId;
+    pendings[type] = firstId != null ? String(firstId) : null;
+    log("order", `顺序挂单: BUY@${buyPrice} SELL@${sellPrice}` + (guard.attachStops ? " + 止损" : ""));
+    return placed;
+  } catch (err) {
+    unlockOperating(locks, timers, pendings, type);
+    if (isUnknownOrderError(err)) {
+      log("order", "原子挂单失败但订单已不存在，忽略");
       return undefined;
     }
     throw err;

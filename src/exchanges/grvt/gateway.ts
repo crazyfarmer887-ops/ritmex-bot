@@ -440,6 +440,93 @@ export class GrvtGateway {
     }
   }
 
+  /**
+   * Create multiple orders atomically using GRVT bulk orders API.
+   * Supports OSO (main + contingent TP/SL) and placing symmetric BUY/SELL entries together.
+   */
+  async createBulkOrders(paramsList: CreateOrderParams[]): Promise<AsterOrder[]> {
+    // Trailing stop is not supported on GRVT
+    const hasTrailing = paramsList.some((p) => p.type === "TRAILING_STOP_MARKET");
+    if (hasTrailing) {
+      throw new Error(TRAILING_NOT_SUPPORTED_ERROR);
+    }
+
+    await this.ensureSession();
+    await this.loadInstrumentInfo();
+
+    const instrumentInfo = this.instrumentInfo;
+    if (!instrumentInfo) {
+      throw new Error("GRVT instrument metadata not available");
+    }
+
+    // Build and sign every order independently
+    const signedOrders: GrvtSignedOrder[] = [];
+    for (const params of paramsList) {
+      const { order: unsignedOrder, signing } = buildUnsignedOrder({
+        params,
+        instrument: this.instrument,
+        subAccountId: this.subAccountId,
+      });
+
+      const nonce = randomInt(0, 2 ** 32);
+      const expirationNs = this.computeExpirationNs();
+
+      const signContext: GrvtSignContext = {
+        order: unsignedOrder,
+        quantity: signing.quantity,
+        price: signing.price,
+        side: signing.side,
+        isMarket: signing.isMarket,
+        timeInForce: signing.timeInForce,
+        postOnly: signing.postOnly,
+        reduceOnly: signing.reduceOnly,
+        nonce,
+        expirationNs,
+        instrument: instrumentInfo,
+        chainId: this.chainId,
+        subAccountId: this.subAccountId,
+      };
+
+      const signature = this.signatureProvider
+        ? await this.signatureProvider(signContext)
+        : await this.signWithPrivateKey(signContext);
+
+      if (!signature.expiration) {
+        signature.expiration = expirationNs.toString();
+      }
+      if (signature.nonce == null) {
+        signature.nonce = nonce;
+      }
+      if (!signature.r || !signature.s || typeof signature.v !== "number") {
+        throw new Error("Invalid signature returned for GRVT order");
+      }
+      signedOrders.push({ ...unsignedOrder, signature });
+    }
+
+    // Invoke GRVT bulk order creation
+    try {
+      const payload = {
+        orders: signedOrders.map((o) => toApiOrderPayload(o)),
+      } as any;
+      const response = await (this.tdg as any).createBulkOrders(payload);
+      const rawList: any[] = ((response as any)?.result ?? []) as any[];
+      const mapped: AsterOrder[] = rawList.map((order: any) => mapOrder(order, this.symbol));
+      for (const order of mapped) this.mergeOrder(order);
+      if (signedOrders.some((o) => o.reduce_only)) {
+        void this.refreshPositions().catch((error) => this.logger("postBulkPositionRefresh", error));
+      }
+      return mapped;
+    } catch (error) {
+      const payload = {
+        code: (error as any)?.response?.data?.code,
+        message: (error as any)?.response?.data?.message,
+      };
+      this.logger("createBulkOrders", { error: extractMessage(error), payload });
+      const detail = [payload.code, payload.message].filter(Boolean).join(": ");
+      throw new Error(detail || extractMessage(error));
+    }
+  }
+
   async cancelOrder(params: { symbol: string; orderId: number | string }): Promise<void> {
     const orderId = String(params.orderId);
     await this.tdg.cancelOrder({ sub_account_id: this.subAccountId, order_id: orderId });

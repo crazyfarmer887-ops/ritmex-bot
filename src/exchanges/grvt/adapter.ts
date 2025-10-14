@@ -207,6 +207,13 @@ export class GrvtExchangeAdapter implements ExchangeAdapter {
     this.lastInitErrorAt = now;
     console.error(`[GrvtExchangeAdapter] ${context} failed`, error);
   }
+
+  // Non-standard extension used by strategies for atomic placement
+  async createBulkOrders(paramsList: CreateOrderParams[]): Promise<AsterOrder[]> {
+    await this.ensureInitialized("createBulkOrders");
+    // @ts-expect-error: expose gateway bulk method for GRVT
+    return this.gateway.createBulkOrders(paramsList);
+  }
 }
 
 function requireValue<T>(value: T | undefined | null, key: string): T {
