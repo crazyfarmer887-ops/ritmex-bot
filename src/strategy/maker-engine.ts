@@ -475,22 +475,54 @@ export class MakerEngine {
       );
       try {
         await this.flushOrders();
-        await marketClose(
-          this.exchange,
-          this.config.symbol,
-          this.openOrders,
-          this.locks,
-          this.timers,
-          this.pending,
-          position.positionAmt > 0 ? "SELL" : "BUY",
-          absPosition,
-          (type, detail) => this.tradeLog.push(type, detail),
-          {
-            markPrice: position.markPrice,
-            expectedPrice: Number(closeSidePrice) || null,
-            maxPct: this.config.maxCloseSlippagePct,
-          }
-        );
+        // On GRVT, enforce post-only (GTX) close when stopping out maker positions
+        if (this.exchange.id === "grvt") {
+          const isSellClose = position.positionAmt > 0;
+          const priceDecimals = Math.max(0, Math.floor(Math.log10(1 / this.config.priceTick)));
+          const limitPrice = isSellClose
+            ? formatPriceToString(askPrice, priceDecimals)
+            : formatPriceToString(bidPrice, priceDecimals);
+          await placeOrder(
+            this.exchange,
+            this.config.symbol,
+            this.openOrders,
+            this.locks,
+            this.timers,
+            this.pending,
+            isSellClose ? "SELL" : "BUY",
+            limitPrice,
+            absPosition,
+            (type, detail) => this.tradeLog.push(type, detail),
+            true,
+            {
+              markPrice: position.markPrice,
+              expectedPrice: Number(closeSidePrice) || null,
+              maxPct: this.config.maxCloseSlippagePct,
+            },
+            {
+              priceTick: this.config.priceTick,
+              qtyStep: 0.001,
+            }
+          );
+          this.tradeLog.push("stop", "GRVT post-only GTX 平仓(止损)");
+        } else {
+          await marketClose(
+            this.exchange,
+            this.config.symbol,
+            this.openOrders,
+            this.locks,
+            this.timers,
+            this.pending,
+            position.positionAmt > 0 ? "SELL" : "BUY",
+            absPosition,
+            (type, detail) => this.tradeLog.push(type, detail),
+            {
+              markPrice: position.markPrice,
+              expectedPrice: Number(closeSidePrice) || null,
+              maxPct: this.config.maxCloseSlippagePct,
+            }
+          );
+        }
       } catch (error) {
         if (isUnknownOrderError(error)) {
           this.tradeLog.push("order", "止损平仓时订单已不存在");
