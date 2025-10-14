@@ -16,8 +16,10 @@ import { computeDepthStats } from "../utils/depth";
 import { computePositionPnl } from "../utils/pnl";
 import { getTopPrices, getMidOrLast } from "../utils/price";
 import { shouldStopLoss } from "../utils/risk";
+import { calcStopLossPrice } from "../utils/strategy";
 import {
   marketClose,
+  placeStopLossOrder,
   placeOrder,
   unlockOperating,
 } from "../core/order-coordinator";
@@ -322,7 +324,7 @@ export class OffsetMakerEngine {
   private async enforceRateLimitStop(): Promise<void> {
     const position = getPosition(this.accountSnapshot, this.config.symbol);
     if (Math.abs(position.positionAmt) < EPS) return;
-    await this.flushOrders();
+    await this.flushNonStopOrders();
     const absPosition = Math.abs(position.positionAmt);
     const side: "BUY" | "SELL" = position.positionAmt > 0 ? "SELL" : "BUY";
     const { topBid, topAsk } = getTopPrices(this.depthSnapshot);
@@ -330,31 +332,12 @@ export class OffsetMakerEngine {
     const closeBidPrice = topBid != null ? formatPriceToString(topBid, priceDecimals) : null;
     const closeAskPrice = topAsk != null ? formatPriceToString(topAsk, priceDecimals) : null;
     try {
-      await marketClose(
-        this.exchange,
-        this.config.symbol,
-        this.openOrders,
-        this.locks,
-        this.timers,
-        this.pending,
-        side,
-        absPosition,
-        (type, detail) => this.tradeLog.push(type, detail),
-        {
-          markPrice: position.markPrice,
-          expectedPrice:
-            side === "SELL"
-              ? (closeAskPrice != null ? Number(closeAskPrice) : null)
-              : (closeBidPrice != null ? Number(closeBidPrice) : null),
-          maxPct: this.config.maxCloseSlippagePct,
-        }
-      );
+      // 在限频停止时也仅维持/更新止损单，不做市价平仓
+      await this.ensureStopLossOrder(position, Number(
+        side === "SELL" ? closeBidPrice : closeAskPrice
+      ) || null);
     } catch (error) {
-      if (isUnknownOrderError(error)) {
-        this.tradeLog.push("order", "限频强制平仓时订单已不存在");
-      } else {
-        this.tradeLog.push("error", `限频强制平仓失败: ${String(error)}`);
-      }
+      this.tradeLog.push("error", `限频止损维护失败: ${String(error)}`);
     }
   }
 
@@ -557,39 +540,108 @@ export class OffsetMakerEngine {
     }
     this.entryPricePendingLogged = false;
 
-    const pnl = computePositionPnl(position, bidPrice, askPrice);
-    const triggerStop = shouldStopLoss(position, bidPrice, askPrice, this.config.lossLimit);
+    // 保持双向挂单，另外预先挂出止损单
+    await this.ensureStopLossOrder(position, (bidPrice + askPrice) / 2);
+  }
 
-    if (triggerStop) {
-      this.tradeLog.push(
-        "stop",
-        `触发止损，方向=${position.positionAmt > 0 ? "多" : "空"} 当前亏损=${pnl.toFixed(4)} USDT`
-      );
+  private async ensureStopLossOrder(position: PositionSnapshot, lastPrice: number | null): Promise<void> {
+    const absPosition = Math.abs(position.positionAmt);
+    if (absPosition < EPS) return;
+    const direction: "long" | "short" = position.positionAmt > 0 ? "long" : "short";
+    const stopSide: "BUY" | "SELL" = direction === "long" ? "SELL" : "BUY";
+    const targetStop = calcStopLossPrice(position.entryPrice, absPosition, direction, this.config.lossLimit);
+
+    const currentStop = this.openOrders.find((o) => {
+      const hasStopPrice = Number.isFinite(Number(o.stopPrice)) && Number(o.stopPrice) > 0;
+      return o.side === stopSide && (String(o.type).toUpperCase() === "STOP_MARKET" || hasStopPrice);
+    });
+
+    const priceTick = Math.max(1e-9, this.config.priceTick);
+    const roundedTarget = Math.round(targetStop / priceTick) * priceTick;
+    const existing = Number(currentStop?.stopPrice);
+    const needPlace = !currentStop;
+    const needReplace = Number.isFinite(existing) && Math.abs(existing - roundedTarget) >= priceTick;
+
+    if (needPlace) {
       try {
-        await this.flushOrders();
-        await marketClose(
+        await placeStopLossOrder(
           this.exchange,
           this.config.symbol,
           this.openOrders,
           this.locks,
           this.timers,
           this.pending,
-          position.positionAmt > 0 ? "SELL" : "BUY",
+          stopSide,
+          roundedTarget,
           absPosition,
+          lastPrice,
           (type, detail) => this.tradeLog.push(type, detail),
-          {
-            markPrice: position.markPrice,
-            expectedPrice: Number(position.positionAmt > 0 ? bidPrice : askPrice) || null,
-            maxPct: this.config.maxCloseSlippagePct,
-          }
+          { markPrice: position.markPrice, maxPct: this.config.maxCloseSlippagePct },
+          { priceTick: this.config.priceTick, qtyStep: 0.001 }
         );
-      } catch (error) {
-        if (isUnknownOrderError(error)) {
-          this.tradeLog.push("order", "止损平仓时订单已不存在");
+      } catch (err) {
+        this.tradeLog.push("error", `挂止损单失败: ${String(err)}`);
+      }
+      return;
+    }
+
+    if (needReplace && currentStop) {
+      try {
+        await this.exchange.cancelOrder({ symbol: this.config.symbol, orderId: currentStop.orderId });
+      } catch (err) {
+        if (isUnknownOrderError(err)) {
+          this.tradeLog.push("order", "原止损单已不存在，跳过撤销");
         } else {
-          this.tradeLog.push("error", `止损平仓失败: ${String(error)}`);
+          this.tradeLog.push("error", `取消原止损单失败: ${String(err)}`);
         }
       }
+      try {
+        await placeStopLossOrder(
+          this.exchange,
+          this.config.symbol,
+          this.openOrders,
+          this.locks,
+          this.timers,
+          this.pending,
+          stopSide,
+          roundedTarget,
+          absPosition,
+          lastPrice,
+          (type, detail) => this.tradeLog.push(type, detail),
+          { markPrice: position.markPrice, maxPct: this.config.maxCloseSlippagePct },
+          { priceTick: this.config.priceTick, qtyStep: 0.001 }
+        );
+        this.tradeLog.push("stop", `移动止损到 ${formatPriceToString(roundedTarget, Math.max(0, Math.floor(Math.log10(1 / this.config.priceTick))))}`);
+      } catch (err) {
+        this.tradeLog.push("error", `移动止损失败: ${String(err)}`);
+      }
+    }
+  }
+
+  private async flushNonStopOrders(): Promise<void> {
+    if (!this.openOrders.length) return;
+    for (const order of this.openOrders) {
+      const type = String(order.type).toUpperCase();
+      const hasStopPrice = Number.isFinite(Number(order.stopPrice)) && Number(order.stopPrice) > 0;
+      const isTriggerLike = type.includes("STOP") || type.includes("TAKE_PROFIT") || hasStopPrice;
+      if (isTriggerLike) continue;
+      if (this.pendingCancelOrders.has(String(order.orderId))) continue;
+      this.pendingCancelOrders.add(String(order.orderId));
+      await safeCancelOrder(
+        this.exchange,
+        this.config.symbol,
+        order,
+        () => {},
+        () => {
+          this.pendingCancelOrders.delete(String(order.orderId));
+          this.openOrders = this.openOrders.filter((existing) => existing.orderId !== order.orderId);
+        },
+        (error) => {
+          this.tradeLog.push("error", `撤销订单失败: ${String(error)}`);
+          this.pendingCancelOrders.delete(String(order.orderId));
+          this.openOrders = this.openOrders.filter((existing) => existing.orderId !== order.orderId);
+        }
+      );
     }
   }
 
