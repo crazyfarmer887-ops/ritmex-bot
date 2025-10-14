@@ -19,6 +19,7 @@ import { shouldStopLoss } from "../utils/risk";
 import {
   marketClose,
   placeOrder,
+  placeStopLossOrder,
   unlockOperating,
 } from "../core/order-coordinator";
 import type { OrderLockMap, OrderPendingMap, OrderTimerMap } from "../core/order-coordinator";
@@ -296,6 +297,50 @@ export class OffsetMakerEngine {
         const closeSide: "BUY" | "SELL" = position.positionAmt > 0 ? "SELL" : "BUY";
         const closePrice = closeSide === "SELL" ? closeAskPrice : closeBidPrice;
         desired.push({ side: closeSide, price: closePrice, amount: absPosition, reduceOnly: true });
+
+        // Pre-place a reduce-only STOP order alongside hedge entries without cancelling them
+        if ((this.config as any).enablePreplaceStopLoss) {
+          try {
+            const stopSide: "BUY" | "SELL" = closeSide;
+            const lastPx = closeSide === "SELL" ? Number(closeBidPrice) : Number(closeAskPrice);
+            const entry = position.entryPrice;
+            const qty = absPosition;
+            if (qty > 0 && Number.isFinite(entry) && Number.isFinite(lastPx)) {
+              const lossUsd = this.config.lossLimit;
+              const stopPx = closeSide === "SELL" ? entry - lossUsd / qty : entry + lossUsd / qty;
+              const tick = Math.max(1e-9, this.config.priceTick);
+              const valid = (stopSide === "SELL" && stopPx <= lastPx - tick) || (stopSide === "BUY" && stopPx >= lastPx + tick);
+              if (valid) {
+                const hasStop = this.openOrders.some((o) => {
+                  const hasStopPrice = Number.isFinite(Number(o.stopPrice)) && Number(o.stopPrice) > 0;
+                  return o.side === stopSide && (o.type === "STOP_MARKET" || hasStopPrice);
+                });
+                if (!hasStop) {
+                  await placeStopLossOrder(
+                    this.exchange,
+                    this.config.symbol,
+                    this.openOrders,
+                    this.locks,
+                    this.timers,
+                    this.pending,
+                    stopSide,
+                    Number(formatPriceToString(stopPx, priceDecimals)),
+                    qty,
+                    lastPx,
+                    (type, detail) => this.tradeLog.push(type, detail),
+                    {
+                      markPrice: position.markPrice,
+                      maxPct: this.config.maxCloseSlippagePct,
+                    },
+                    { priceTick: this.config.priceTick, qtyStep: 0.001 }
+                  );
+                }
+              }
+            }
+          } catch (error) {
+            this.tradeLog.push("error", `预挂止损失败: ${String(error)}`);
+          }
+        }
       }
 
       this.desiredOrders = desired;
@@ -561,6 +606,18 @@ export class OffsetMakerEngine {
     const triggerStop = shouldStopLoss(position, bidPrice, askPrice, this.config.lossLimit);
 
     if (triggerStop) {
+      // If pre-placed STOP exists, avoid immediate market close; wait for trigger
+      if ((this.config as any).enablePreplaceStopLoss) {
+        const stopSide: "BUY" | "SELL" = position.positionAmt > 0 ? "SELL" : "BUY";
+        const hasStop = this.openOrders.some((o) => {
+          const hasStopPrice = Number.isFinite(Number(o.stopPrice)) && Number(o.stopPrice) > 0;
+          return o.side === stopSide && (o.type === "STOP_MARKET" || hasStopPrice);
+        });
+        if (hasStop) {
+          this.tradeLog.push("stop", "已存在止损挂单，等待触发，跳过市价平仓");
+          return;
+        }
+      }
       this.tradeLog.push(
         "stop",
         `触发止损，方向=${position.positionAmt > 0 ? "多" : "空"} 当前亏损=${pnl.toFixed(4)} USDT`

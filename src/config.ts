@@ -90,6 +90,8 @@ export interface MakerConfig {
   maxLogEntries: number;
   maxCloseSlippagePct: number;
   priceTick: number;
+  // Enable pre-placing STOP orders for existing exposure
+  enablePreplaceStopLoss: boolean;
 }
 
 export const makerConfig: MakerConfig = {
@@ -105,6 +107,14 @@ export const makerConfig: MakerConfig = {
     0.05
   ),
   priceTick: parseNumber(process.env.MAKER_PRICE_TICK ?? process.env.PRICE_TICK, 0.1),
+  enablePreplaceStopLoss: ((): boolean => {
+    const raw = process.env.MAKER_ENABLE_PREPLACE_SL ?? process.env.ENABLE_PREPLACE_SL;
+    if (!raw) return true;
+    const normalized = raw.trim().toLowerCase();
+    if (normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on") return true;
+    if (normalized === "0" || normalized === "false" || normalized === "no" || normalized === "off") return false;
+    return true;
+  })(),
 };
 
 export interface BasisArbConfig {
