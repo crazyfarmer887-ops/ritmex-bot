@@ -4,8 +4,9 @@ export function getTopPrices(depth?: AsterDepth | null): { topBid: number | null
   const bid = Number(depth?.bids?.[0]?.[0]);
   const ask = Number(depth?.asks?.[0]?.[0]);
   return {
-    topBid: Number.isFinite(bid) ? bid : null,
-    topAsk: Number.isFinite(ask) ? ask : null,
+    // Treat non-positive or non-finite quotes as missing
+    topBid: Number.isFinite(bid) && bid > 0 ? bid : null,
+    topAsk: Number.isFinite(ask) && ask > 0 ? ask : null,
   };
 }
 
