@@ -14,7 +14,8 @@ export function shouldStopLoss(
   }
 
   const closePrice = position.positionAmt > 0 ? bestBid : bestAsk;
-  if (!Number.isFinite(closePrice)) return false;
+  // Guard: invalid or non-positive reference price should not trigger stop-loss
+  if (!Number.isFinite(closePrice) || closePrice <= 0) return false;
 
   const pnl = position.positionAmt > 0
     ? (closePrice - position.entryPrice) * absPosition

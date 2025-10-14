@@ -6,11 +6,13 @@ export function computePositionPnl(
   bestAsk?: number | null
 ): number {
   const priceForPnl = position.positionAmt > 0 ? bestBid : bestAsk;
-  if (!Number.isFinite(priceForPnl as number)) return 0;
+  const priceNum = Number(priceForPnl);
+  // Guard: invalid or non-positive reference price yields 0 PnL
+  if (!Number.isFinite(priceNum) || priceNum <= 0) return 0;
   const absAmt = Math.abs(position.positionAmt);
   return position.positionAmt > 0
-    ? ((priceForPnl as number) - position.entryPrice) * absAmt
-    : (position.entryPrice - (priceForPnl as number)) * absAmt;
+    ? (priceNum - position.entryPrice) * absAmt
+    : (position.entryPrice - priceNum) * absAmt;
 }
 
 
