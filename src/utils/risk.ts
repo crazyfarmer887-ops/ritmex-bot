@@ -14,7 +14,8 @@ export function shouldStopLoss(
   }
 
   const closePrice = position.positionAmt > 0 ? bestBid : bestAsk;
-  if (!Number.isFinite(closePrice)) return false;
+  // Ignore invalid or non-positive quotes to avoid spurious stop-loss triggers
+  if (!Number.isFinite(closePrice) || closePrice <= 0) return false;
 
   const pnl = position.positionAmt > 0
     ? (closePrice - position.entryPrice) * absPosition
