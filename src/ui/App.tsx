@@ -5,12 +5,13 @@ import { MakerApp } from "./MakerApp";
 import { OffsetMakerApp } from "./OffsetMakerApp";
 import { GridApp } from "./GridApp";
 import { BasisApp } from "./BasisApp";
+import { GrvtHedgeApp } from "./GrvtHedgeApp";
 import { isBasisStrategyEnabled } from "../config";
 import { loadCopyrightFragments, verifyCopyrightIntegrity } from "../utils/copyright";
 import { resolveExchangeId } from "../exchanges/create-adapter";
 
 interface StrategyOption {
-  id: "trend" | "maker" | "offset-maker" | "basis" | "grid";
+  id: "trend" | "maker" | "offset-maker" | "basis" | "grid" | "grvt-hedge";
   label: string;
   description: string;
   component: React.ComponentType<{ onExit: () => void }>;
@@ -52,19 +53,29 @@ export function App() {
   const integrityOk = useMemo(() => verifyCopyrightIntegrity(), []);
   const exchangeId = useMemo(() => resolveExchangeId(), []);
   const strategies = useMemo(() => {
-    if (!isBasisStrategyEnabled()) {
-      return BASE_STRATEGIES;
+    const allStrategies = [...BASE_STRATEGIES];
+    
+    // Add GRVT hedge strategy if exchange is GRVT
+    if (exchangeId === "grvt") {
+      allStrategies.push({
+        id: "grvt-hedge" as const,
+        label: "GRVT 헤지 전략",
+        description: "동시 매수/매도 주문과 자동 스탑로스로 리스크 관리",
+        component: GrvtHedgeApp,
+      });
     }
-    return [
-      ...BASE_STRATEGIES,
-      {
+    
+    if (isBasisStrategyEnabled()) {
+      allStrategies.push({
         id: "basis" as const,
         label: "期现套利策略",
         description: "监控期货与现货盘口差价，辅助发现套利机会",
         component: BasisApp,
-      },
-    ];
-  }, []);
+      });
+    }
+    
+    return allStrategies;
+  }, [exchangeId]);
 
   useInput(
     (input, key) => {
