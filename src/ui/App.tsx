@@ -5,12 +5,13 @@ import { MakerApp } from "./MakerApp";
 import { OffsetMakerApp } from "./OffsetMakerApp";
 import { GridApp } from "./GridApp";
 import { BasisApp } from "./BasisApp";
+import { GrvtMakerApp } from "./GrvtMakerApp";
 import { isBasisStrategyEnabled } from "../config";
 import { loadCopyrightFragments, verifyCopyrightIntegrity } from "../utils/copyright";
 import { resolveExchangeId } from "../exchanges/create-adapter";
 
 interface StrategyOption {
-  id: "trend" | "maker" | "offset-maker" | "basis" | "grid";
+  id: "trend" | "maker" | "offset-maker" | "basis" | "grid" | "grvt-maker";
   label: string;
   description: string;
   component: React.ComponentType<{ onExit: () => void }>;
@@ -40,6 +41,12 @@ const BASE_STRATEGIES: StrategyOption[] = [
     label: "偏移做市策略",
     description: "根据盘口深度自动偏移挂单并在极端不平衡时撤退",
     component: OffsetMakerApp,
+  },
+  {
+    id: "grvt-maker",
+    label: "GRVT 同步做市策略",
+    description: "双边同步做市，自动止损保护 (适用于 GRVT 交易所)",
+    component: GrvtMakerApp,
   },
 ];
 

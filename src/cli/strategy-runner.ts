@@ -4,6 +4,7 @@ import type { ExchangeAdapter } from "../exchanges/adapter";
 import { buildAdapterFromEnv } from "../exchanges/resolve-from-env";
 import { MakerEngine, type MakerEngineSnapshot } from "../strategy/maker-engine";
 import { OffsetMakerEngine, type OffsetMakerEngineSnapshot } from "../strategy/offset-maker-engine";
+import { GrvtMakerEngine, type GrvtMakerEngineSnapshot } from "../strategy/grvt-maker-engine";
 import { TrendEngine, type TrendEngineSnapshot } from "../strategy/trend-engine";
 import { BasisArbEngine, type BasisArbSnapshot } from "../strategy/basis-arb-engine";
 import { GridEngine, type GridEngineSnapshot } from "../strategy/grid-engine";
@@ -22,6 +23,7 @@ export const STRATEGY_LABELS: Record<StrategyId, string> = {
   "offset-maker": "Offset Maker",
   basis: "Basis Arbitrage",
   grid: "Grid",
+  "grvt-maker": "GRVT Maker (Synchronized)",
 };
 
 export async function startStrategy(strategyId: StrategyId, options: RunnerOptions = {}): Promise<void> {
@@ -104,6 +106,19 @@ const STRATEGY_FACTORIES: Record<StrategyId, StrategyRunner> = {
       offUpdate: (emitter) => engine.off("update", emitter),
     });
   },
+  "grvt-maker": async (opts) => {
+    const config = makerConfig;
+    const adapter = createAdapterOrThrow(config.symbol);
+    const engine = new GrvtMakerEngine(config, adapter);
+    await runEngine({
+      engine,
+      strategy: "grvt-maker",
+      silent: opts.silent,
+      getSnapshot: () => engine.getSnapshot(),
+      onUpdate: (emitter) => engine.on("update", emitter),
+      offUpdate: (emitter) => engine.off("update", emitter),
+    });
+  },
 };
 
 interface EngineHarness<TSnapshot> {
@@ -116,7 +131,7 @@ interface EngineHarness<TSnapshot> {
 }
 
 async function runEngine<
-  TSnapshot extends TrendEngineSnapshot | MakerEngineSnapshot | OffsetMakerEngineSnapshot | BasisArbSnapshot | GridEngineSnapshot
+  TSnapshot extends TrendEngineSnapshot | MakerEngineSnapshot | OffsetMakerEngineSnapshot | BasisArbSnapshot | GridEngineSnapshot | GrvtMakerEngineSnapshot
 >(
   harness: EngineHarness<TSnapshot>
 ): Promise<void> {
