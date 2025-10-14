@@ -7,6 +7,7 @@ import { OffsetMakerEngine, type OffsetMakerEngineSnapshot } from "../strategy/o
 import { TrendEngine, type TrendEngineSnapshot } from "../strategy/trend-engine";
 import { BasisArbEngine, type BasisArbSnapshot } from "../strategy/basis-arb-engine";
 import { GridEngine, type GridEngineSnapshot } from "../strategy/grid-engine";
+import { GrvtHedgeEngine, type GrvtHedgeSnapshot } from "../strategy/grvt-hedge-engine";
 import { extractMessage } from "../utils/errors";
 import type { StrategyId } from "./args";
 
@@ -22,6 +23,7 @@ export const STRATEGY_LABELS: Record<StrategyId, string> = {
   "offset-maker": "Offset Maker",
   basis: "Basis Arbitrage",
   grid: "Grid",
+  "grvt-hedge": "GRVT Hedge",
 };
 
 export async function startStrategy(strategyId: StrategyId, options: RunnerOptions = {}): Promise<void> {
@@ -104,6 +106,31 @@ const STRATEGY_FACTORIES: Record<StrategyId, StrategyRunner> = {
       offUpdate: (emitter) => engine.off("update", emitter),
     });
   },
+  "grvt-hedge": async (opts) => {
+    const exchangeId = resolveExchangeId();
+    if (exchangeId !== "grvt") {
+      throw new Error("GRVT Hedge strategy requires GRVT exchange (set EXCHANGE=grvt)");
+    }
+    const config = {
+      symbol: process.env.GRVT_SYMBOL || "BTCUSDT",
+      tradeAmount: Number(process.env.GRVT_TRADE_AMOUNT || "0.001"),
+      spreadPct: Number(process.env.GRVT_SPREAD_PCT || "0.5"),
+      stopLossPct: Number(process.env.GRVT_STOP_LOSS_PCT || "2"),
+      priceTick: Number(process.env.GRVT_PRICE_TICK || "0.1"),
+      qtyStep: Number(process.env.GRVT_QTY_STEP || "0.0001"),
+      logContext: "GrvtHedge"
+    };
+    const adapter = createAdapterOrThrow(config.symbol);
+    const engine = new GrvtHedgeEngine(adapter, config);
+    await runEngine({
+      engine,
+      strategy: "grvt-hedge",
+      silent: opts.silent,
+      getSnapshot: () => engine.getSnapshot(),
+      onUpdate: (emitter) => engine.events.on("update", emitter),
+      offUpdate: (emitter) => engine.events.off("update", emitter),
+    });
+  },
 };
 
 interface EngineHarness<TSnapshot> {
@@ -116,7 +143,7 @@ interface EngineHarness<TSnapshot> {
 }
 
 async function runEngine<
-  TSnapshot extends TrendEngineSnapshot | MakerEngineSnapshot | OffsetMakerEngineSnapshot | BasisArbSnapshot | GridEngineSnapshot
+  TSnapshot extends TrendEngineSnapshot | MakerEngineSnapshot | OffsetMakerEngineSnapshot | BasisArbSnapshot | GridEngineSnapshot | GrvtHedgeSnapshot
 >(
   harness: EngineHarness<TSnapshot>
 ): Promise<void> {
