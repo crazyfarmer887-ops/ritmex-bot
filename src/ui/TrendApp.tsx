@@ -7,7 +7,7 @@ import { TrendEngine, type TrendEngineSnapshot } from "../strategy/trend-engine"
 import { formatNumber } from "../utils/format";
 import { DataTable, type TableColumn } from "./components/DataTable";
 
-const READY_MESSAGE = "正在等待交易所推送数据…";
+const READY_MESSAGE = "거래소 데이터 수신 대기 중...";
 
 interface TrendAppProps {
   onExit: () => void;
@@ -56,8 +56,8 @@ export function TrendApp({ onExit }: TrendAppProps) {
   if (error) {
     return (
       <Box flexDirection="column" padding={1}>
-        <Text color="red">启动失败: {error.message}</Text>
-        <Text color="gray">请检查环境变量和网络连通性。</Text>
+        <Text color="red">❌ 시작 실패: {error.message}</Text>
+        <Text color="gray">환경 변수와 네트워크 연결을 확인하세요.</Text>
       </Box>
     );
   }
@@ -65,7 +65,7 @@ export function TrendApp({ onExit }: TrendAppProps) {
   if (!snapshot) {
     return (
       <Box padding={1}>
-        <Text>正在初始化趋势策略…</Text>
+        <Text>🔄 추세 추종 전략 초기화 중...</Text>
       </Box>
     );
   }
@@ -96,56 +96,56 @@ export function TrendApp({ onExit }: TrendAppProps) {
   return (
     <Box flexDirection="column" paddingX={1} paddingY={0}>
       <Box flexDirection="column" marginBottom={1}>
-        <Text color="cyanBright">Trend Strategy Dashboard</Text>
+        <Text color="cyanBright" bold>📈 추세 추종 전략 대시보드</Text>
         <Text>
-          交易所: {exchangeName} ｜ 交易对: {snapshot.symbol} ｜ 最近价格: {formatNumber(lastPrice, 2)} ｜ SMA30: {formatNumber(sma30, 2)} ｜ 趋势: {trend}
+          거래소: {exchangeName} | 심볼: {snapshot.symbol} | 현재가: {formatNumber(lastPrice, 2)} | SMA30: {formatNumber(sma30, 2)} | 추세: {trend}
         </Text>
-        <Text color="gray">状态: {ready ? "实时运行" : READY_MESSAGE} ｜ 按 Esc 返回策略选择</Text>
+        <Text color="gray">상태: {ready ? "✅ 실시간 실행 중" : READY_MESSAGE} | Esc 키로 돌아가기</Text>
       </Box>
 
       <Box flexDirection="row" marginBottom={1}>
         <Box flexDirection="column" marginRight={4}>
-          <Text color="greenBright">持仓</Text>
+          <Text color="greenBright" bold>📊 포지션</Text>
           {hasPosition ? (
             <>
               <Text>
-                方向: {position.positionAmt > 0 ? "多" : "空"} ｜ 数量: {formatNumber(Math.abs(position.positionAmt), 4)} ｜ 开仓价: {formatNumber(position.entryPrice, 2)}
+                방향: {position.positionAmt > 0 ? "📈 롱(Long)" : "📉 숏(Short)"} | 수량: {formatNumber(Math.abs(position.positionAmt), 4)} | 진입가: {formatNumber(position.entryPrice, 2)}
               </Text>
               <Text>
-                浮动盈亏: {formatNumber(snapshot.pnl, 4)} USDT ｜ 账户未实现盈亏: {formatNumber(snapshot.unrealized, 4)} USDT
+                평가손익: {formatNumber(snapshot.pnl, 4)} USDT | 계정 미실현손익: {formatNumber(snapshot.unrealized, 4)} USDT
               </Text>
             </>
           ) : (
-            <Text color="gray">当前无持仓</Text>
+            <Text color="gray">현재 포지션 없음</Text>
           )}
         </Box>
         <Box flexDirection="column">
-          <Text color="greenBright">绩效</Text>
+          <Text color="greenBright" bold>🎯 성과</Text>
           <Text>
-            累计交易次数: {snapshot.totalTrades} ｜ 累计收益: {formatNumber(snapshot.totalProfit, 4)} USDT
+            총 거래 횟수: {snapshot.totalTrades} | 총 수익: {formatNumber(snapshot.totalProfit, 4)} USDT
           </Text>
           <Text>
-            累计成交量: {formatNumber(sessionVolume, 2)} USDT
+            총 거래량: {formatNumber(sessionVolume, 2)} USDT
           </Text>
           {snapshot.lastOpenSignal.side ? (
             <Text color="gray">
-              最近开仓信号: {snapshot.lastOpenSignal.side} @ {formatNumber(snapshot.lastOpenSignal.price, 2)}
+              최근 진입 신호: {snapshot.lastOpenSignal.side} @ {formatNumber(snapshot.lastOpenSignal.price, 2)}
             </Text>
           ) : null}
         </Box>
       </Box>
 
       <Box flexDirection="column" marginBottom={1}>
-        <Text color="yellow">当前挂单</Text>
+        <Text color="yellow" bold>📋 활성 주문</Text>
         {orderRows.length > 0 ? (
           <DataTable columns={orderColumns} rows={orderRows} />
         ) : (
-          <Text color="gray">暂无挂单</Text>
+          <Text color="gray">활성 주문 없음</Text>
         )}
       </Box>
 
       <Box flexDirection="column">
-        <Text color="yellow">最近交易与事件</Text>
+        <Text color="yellow" bold>📝 최근 거래 및 이벤트</Text>
         {lastLogs.length > 0 ? (
           lastLogs.map((item, index) => (
             <Text key={`${item.time}-${index}`}>
@@ -153,7 +153,7 @@ export function TrendApp({ onExit }: TrendAppProps) {
             </Text>
           ))
         ) : (
-          <Text color="gray">暂无日志</Text>
+          <Text color="gray">로그 없음</Text>
         )}
       </Box>
     </Box>

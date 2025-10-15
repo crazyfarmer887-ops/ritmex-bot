@@ -1,4 +1,6 @@
 import crypto from "crypto";
+import React from "react";
+import { Text } from "ink";
 
 const ENCRYPTED_COPYRIGHT = "gbbx3pZWTqgMmLcH3fM0qefo6q4eHR0weNjfLcWY5oPhfwH9DaDEWAvhItfzGbBJzJ6UuVPOb1vqMAL0qpPdw+q0bf13Tz8ewMR3cSHyH8R59KfasAo=";
 const PRIMARY_HASH = "a637d95de2b7d13af96b7c0deb286a439b1b07408577ae97c93e6fdbaa6526bf";
@@ -54,3 +56,7 @@ export function loadCopyrightFragments() {
   };
 }
 
+export function renderCopyright() {
+  const bannerText = decryptCopyright();
+  return <Text color="gray">{bannerText}</Text>;
+}
