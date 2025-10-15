@@ -121,6 +121,13 @@ export class GrvtMakerEngine {
     this.rateLimit = new RateLimitController(this.config.refreshIntervalMs, (type, detail) =>
       this.tradeLog.push(type, detail)
     );
+    // 리베이트율을 사용하는 SessionVolumeTracker 초기화
+    const rebateRate = this.config.makerRebateRate ?? 0.00005;
+    Object.defineProperty(this, 'sessionVolume', {
+      value: new SessionVolumeTracker(rebateRate),
+      writable: false,
+      configurable: false,
+    });
     this.bootstrap();
   }
 
@@ -314,34 +321,41 @@ export class GrvtMakerEngine {
       const insufficientActive = this.applyInsufficientBalanceState(Date.now());
       const canEnter = !this.rateLimit.shouldBlockEntries() && !insufficientActive;
 
+      // 거래량 + 리베이트 중심 전략: 항상 양방향 주문 배치 + 빠른 회전
       if (absPosition < EPS) {
-        // No position: place synchronized buy and sell orders
+        // 포지션 없음: 양방향 동시 주문으로 체결 대기 (거래량 극대화)
         this.entryPricePendingLogged = false;
         if (canEnter) {
           desired.push({ side: "BUY", price: bidPrice, amount: this.config.tradeAmount, reduceOnly: false });
           desired.push({ side: "SELL", price: askPrice, amount: this.config.tradeAmount, reduceOnly: false });
         }
       } else {
-        // Has position: place reduce-only TP ladder (limit-only) while waiting for stop-loss
+        // 포지션 보유: 빠른 회전으로 거래량 유지 + 리베이트 획득 극대화
         const hasEntryPrice = Number.isFinite(position.entryPrice) && Math.abs(position.entryPrice) > 1e-8;
         const direction: "long" | "short" = position.positionAmt > 0 ? "long" : "short";
         const closeSide: "BUY" | "SELL" = direction === "long" ? "SELL" : "BUY";
+        const sameSide: "BUY" | "SELL" = direction === "long" ? "BUY" : "SELL";
+        
         if (hasEntryPrice) {
-          const priceDecimals = Math.max(0, Math.floor(Math.log10(1 / this.config.priceTick)));
           const entry = Number(position.entryPrice);
-          const start = Math.max(0, this.config.tpLadderStartUsd);
-          const step = Math.max(0, this.config.tpLadderStepUsd);
-          const count = Math.max(1, Math.floor(this.config.tpLadderCount));
-          const perOrderQty = absPosition / count;
-          for (let i = 0; i < count; i += 1) {
-            const offset = start + step * i;
-            const target = direction === "long" ? entry + offset : entry - offset;
-            const priceStr = formatPriceToString(target, priceDecimals);
-            desired.push({ side: closeSide, price: priceStr, amount: perOrderQty, reduceOnly: true });
-          }
+          // 설정된 최소 이익률 사용 (기본 0.01%)
+          const minProfitPct = this.config.minTakeProfitPct ?? 0.0001;
+          const tpPrice = direction === "long" 
+            ? entry * (1 + minProfitPct)
+            : entry * (1 - minProfitPct);
+          const tpStr = formatPriceToString(tpPrice, priceDecimals);
+          desired.push({ side: closeSide, price: tpStr, amount: absPosition, reduceOnly: true });
         } else {
+          // 진입가 없으면 현재가 근처에서 청산
           const closePrice = closeSide === "SELL" ? closeAskPrice : closeBidPrice;
           desired.push({ side: closeSide, price: closePrice, amount: absPosition, reduceOnly: true });
+        }
+        
+        // 동일 방향 추가 주문으로 거래량 유지 (설정된 포지션 배수 제한)
+        const maxPositionMultiple = this.config.maxPositionMultiple ?? 3;
+        if (absPosition < this.config.tradeAmount * maxPositionMultiple && canEnter) {
+          const samePrice = sameSide === "BUY" ? bidPrice : askPrice;
+          desired.push({ side: sameSide, price: samePrice, amount: this.config.tradeAmount, reduceOnly: false });
         }
       }
 
@@ -587,15 +601,28 @@ export class GrvtMakerEngine {
     const hasEntryPrice = Number.isFinite(position.entryPrice) && Math.abs(position.entryPrice) > 1e-8;
     if (!hasEntryPrice) {
       if (!this.entryPricePendingLogged) {
-        this.tradeLog.push("info", "做市持仓均价未同步，等待账户快照刷新后再执行止损判断");
+        this.tradeLog.push("info", "메이커 포지션 진입가 미동기화, 계좌 스냅샷 대기 중");
         this.entryPricePendingLogged = true;
       }
       return;
     }
     this.entryPricePendingLogged = false;
 
-    // Ensure stop loss order exists for position
-    await this.ensureStopLossOrder(position, (bidPrice + askPrice) / 2);
+    // 리베이트 전략: 더 넓은 손절폭으로 거래량 우선 (손실은 리베이트로 상쇄)
+    const volumeLossMultiple = this.config.volumeBasedLossMultiple ?? 2;
+    const volumeBasedLossLimit = this.config.lossLimit * volumeLossMultiple;
+    const direction: "long" | "short" = position.positionAmt > 0 ? "long" : "short";
+    
+    // 현재가 기준 손실률 체크
+    const currentPrice = (bidPrice + askPrice) / 2;
+    const currentLoss = direction === "long"
+      ? (position.entryPrice - currentPrice) / position.entryPrice
+      : (currentPrice - position.entryPrice) / position.entryPrice;
+    
+    // 손실이 확대되는 경우만 보호적 손절 주문 배치
+    if (currentLoss > volumeBasedLossLimit * 0.8) {
+      await this.ensureStopLossOrder(position, currentPrice);
+    }
   }
 
   private async ensureStopLossOrder(position: PositionSnapshot, lastPrice: number | null): Promise<void> {
