@@ -22,6 +22,7 @@ import {
   placeStopLossOrder,
   placeOrder,
   unlockOperating,
+  placeOrdersSimultaneously,
 } from "../core/order-coordinator";
 import type { OrderLockMap, OrderPendingMap, OrderTimerMap } from "../core/order-coordinator";
 import type { MakerEngineSnapshot } from "./maker-engine";
@@ -491,9 +492,45 @@ export class OffsetMakerEngine {
       );
     }
 
-    for (const target of toPlace) {
-      if (!target) continue;
-      if (target.amount < EPS) continue;
+    // Group orders by whether they are reduceOnly or not
+    const openingOrders = toPlace.filter(t => t && !t.reduceOnly && t.amount >= EPS);
+    const closingOrders = toPlace.filter(t => t && t.reduceOnly && t.amount >= EPS);
+    
+    // Place opening orders (BUY and SELL) simultaneously
+    if (openingOrders.length > 0) {
+      try {
+        const results = await placeOrdersSimultaneously(
+          this.exchange,
+          this.config.symbol,
+          this.openOrders,
+          this.locks,
+          this.timers,
+          this.pending,
+          openingOrders,
+          (type, detail) => this.tradeLog.push(type, detail),
+          {
+            markPrice: getPosition(this.accountSnapshot, this.config.symbol).markPrice,
+            maxPct: this.config.maxCloseSlippagePct,
+          },
+          {
+            priceTick: this.config.priceTick,
+            qtyStep: 0.001,
+          }
+        );
+        
+        // Record last placed entry order timing and price for successful orders
+        openingOrders.forEach((order, index) => {
+          if (results[index]) {
+            this.lastEntryOrderBySide[order.side] = { price: order.price, ts: Date.now() };
+          }
+        });
+      } catch (error) {
+        this.tradeLog.push("error", `동시 주문 실패: ${String(error)}`);
+      }
+    }
+    
+    // Place closing orders separately if any
+    for (const target of closingOrders) {
       try {
         await placeOrder(
           this.exchange,
@@ -503,7 +540,7 @@ export class OffsetMakerEngine {
           this.timers,
           this.pending,
           target.side,
-          target.price, // 已经是字符串价格
+          target.price,
           target.amount,
           (type, detail) => this.tradeLog.push(type, detail),
           target.reduceOnly,
@@ -513,15 +550,11 @@ export class OffsetMakerEngine {
           },
           {
             priceTick: this.config.priceTick,
-            qtyStep: 0.001, // 默认数量步长
+            qtyStep: 0.001,
           }
         );
-        // Record last placed entry order timing and price
-        if (!target.reduceOnly) {
-          this.lastEntryOrderBySide[target.side] = { price: target.price, ts: Date.now() };
-        }
       } catch (error) {
-        this.tradeLog.push("error", `挂单失败(${target.side} ${target.price}): ${String(error)}`);
+        this.tradeLog.push("error", `평仓 주문 실패(${target.side} ${target.price}): ${String(error)}`);
       }
     }
   }

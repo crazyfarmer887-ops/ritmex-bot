@@ -553,3 +553,96 @@ export async function marketClose(
     throw err;
   }
 }
+
+/**
+ * Place multiple orders simultaneously using Promise.all
+ * This ensures all orders are submitted at the same time
+ */
+export async function placeOrdersSimultaneously(
+  adapter: ExchangeAdapter,
+  symbol: string,
+  openOrders: AsterOrder[],
+  locks: OrderLockMap,
+  timers: OrderTimerMap,
+  pendings: OrderPendingMap,
+  orders: Array<{
+    side: "BUY" | "SELL";
+    price: string;
+    amount: number;
+    reduceOnly?: boolean;
+  }>,
+  log: LogHandler,
+  guard?: OrderGuardOptions,
+  opts?: PlaceOrderOptions
+): Promise<(AsterOrder | undefined)[]> {
+  const type = "LIMIT";
+  if (isOperating(locks, type)) return [];
+
+  // Filter valid orders
+  const validOrders = orders.filter(order => {
+    const priceNum = Number(order.price);
+    if (!enforceMarkPriceGuard(order.side, priceNum, guard, log, "同시 한가 주문")) return false;
+    if (order.amount < 0.001) return false;
+    return true;
+  });
+
+  if (validOrders.length === 0) return [];
+
+  // Deduplicate existing orders for all sides involved
+  const uniqueSides = [...new Set(validOrders.map(o => o.side))];
+  if (!opts?.skipDedupe) {
+    await Promise.all(
+      uniqueSides.map(side => 
+        deduplicateOrders(adapter, symbol, openOrders, locks, timers, pendings, type, side, log)
+      )
+    );
+  }
+
+  lockOperating(locks, timers, pendings, type, log);
+  
+  try {
+    const priceTick = opts?.priceTick ?? 0.1;
+    const qtyStep = opts?.qtyStep ?? 0.001;
+
+    // Create order parameters for all orders
+    const orderPromises = validOrders.map(order => {
+      const params: CreateOrderParams = {
+        symbol,
+        side: order.side,
+        type,
+        quantity: roundQtyDownToStep(order.amount, qtyStep),
+        price: Number(order.price),
+        timeInForce: "GTX",
+      };
+      if (order.reduceOnly) params.reduceOnly = "true";
+      
+      return adapter.createOrder(params).then(
+        result => {
+          log("order", `한가 주문: ${order.side} @ ${params.price} 수량 ${params.quantity} reduceOnly=${order.reduceOnly ?? false}`);
+          return result;
+        },
+        err => {
+          if (isUnknownOrderError(err)) {
+            log("order", `주문이 이미 체결되었거나 취소됨(${order.side} @ ${params.price}), 신규 주문 생략`);
+            return undefined;
+          }
+          throw err;
+        }
+      );
+    });
+
+    // Execute all orders simultaneously
+    const results = await Promise.all(orderPromises);
+    
+    // Store the first successful order ID as pending
+    const firstSuccessfulOrder = results.find(r => r?.orderId);
+    if (firstSuccessfulOrder) {
+      pendings[type] = String(firstSuccessfulOrder.orderId);
+    }
+    
+    return results;
+  } catch (err) {
+    unlockOperating(locks, timers, pendings, type);
+    throw err;
+  }
+}
