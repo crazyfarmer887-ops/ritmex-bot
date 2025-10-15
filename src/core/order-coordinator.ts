@@ -79,6 +79,17 @@ export function unlockOperating(
   timers[type] = null;
 }
 
+function buildLockKey(
+  type: string,
+  side?: "BUY" | "SELL",
+  reduceOnly?: boolean
+): string {
+  const t = String(type).toUpperCase();
+  if (!side) return t;
+  const intent = reduceOnly ? "CLOSE" : "OPEN";
+  return `${t}:${side}:${intent}`;
+}
+
 export async function deduplicateOrders(
   adapter: ExchangeAdapter,
   symbol: string,
@@ -88,7 +99,8 @@ export async function deduplicateOrders(
   pendings: OrderPendingMap,
   type: string,
   side: string,
-  log: LogHandler
+  log: LogHandler,
+  reduceOnly?: boolean
 ): Promise<void> {
   // Treat STOP orders on some exchanges (e.g., Lighter) as LIMIT with stopPrice populated.
   const sameTypeOrders = openOrders.filter((o) => {
@@ -96,7 +108,10 @@ export async function deduplicateOrders(
     const isStopLike = Number.isFinite(Number(o.stopPrice)) && Number(o.stopPrice) > 0;
     const matchesStop = type === "STOP_MARKET" && isStopLike && o.side === side;
     const exactMatch = normalizedType === type && o.side === side;
-    return exactMatch || matchesStop;
+    if (!(exactMatch || matchesStop)) return false;
+    if (reduceOnly == null) return true;
+    const oReduce = Boolean((o as any).reduceOnly === true);
+    return oReduce === reduceOnly;
   });
   if (sameTypeOrders.length <= 1) return;
   sameTypeOrders.sort((a, b) => {
@@ -107,8 +122,9 @@ export async function deduplicateOrders(
   const toCancel = sameTypeOrders.slice(1);
   const orderIdList = toCancel.map((o) => o.orderId);
   if (!orderIdList.length) return;
+  const lockKey = buildLockKey(type, side as any, reduceOnly);
   try {
-    lockOperating(locks, timers, pendings, type, log);
+    lockOperating(locks, timers, pendings, lockKey, log);
     await adapter.cancelOrders({ symbol, orderIdList });
     log("order", `去重撤销重复 ${type} 单: ${orderIdList.join(",")}`);
   } catch (err) {
@@ -118,7 +134,7 @@ export async function deduplicateOrders(
       log("error", `去重撤单失败: ${String(err)}`);
     }
   } finally {
-    unlockOperating(locks, timers, pendings, type);
+    unlockOperating(locks, timers, pendings, lockKey);
   }
 }
 
@@ -144,7 +160,8 @@ export async function placeOrder(
   opts?: PlaceOrderOptions
 ): Promise<AsterOrder | undefined> {
   const type = "LIMIT";
-  if (isOperating(locks, type)) return;
+  const lockKey = buildLockKey(type, side, reduceOnly);
+  if (isOperating(locks, lockKey)) return;
   const priceNum = Number(price);
   if (!enforceMarkPriceGuard(side, priceNum, guard, log, "限价单")) return;
   const priceTick = opts?.priceTick ?? 0.1;
@@ -159,16 +176,27 @@ export async function placeOrder(
   };
   if (reduceOnly) params.reduceOnly = "true";
   if (!opts?.skipDedupe) {
-    await deduplicateOrders(adapter, symbol, openOrders, locks, timers, pendings, type, side, log);
+    await deduplicateOrders(
+      adapter,
+      symbol,
+      openOrders,
+      locks,
+      timers,
+      pendings,
+      type,
+      side,
+      log,
+      reduceOnly
+    );
   }
-  lockOperating(locks, timers, pendings, type, log);
+  lockOperating(locks, timers, pendings, lockKey, log);
   try {
     const order = await adapter.createOrder(params);
-    pendings[type] = String(order.orderId);
+    pendings[lockKey] = String(order.orderId);
     log("order", `挂限价单: ${side} @ ${params.price} 数量 ${params.quantity} reduceOnly=${reduceOnly}`);
     return order;
   } catch (err) {
-    unlockOperating(locks, timers, pendings, type);
+    unlockOperating(locks, timers, pendings, lockKey);
     if (isUnknownOrderError(err)) {
       log("order", "订单已成交或被撤销，跳过新单");
       return undefined;
@@ -192,7 +220,8 @@ export async function placeMarketOrder(
   opts?: { qtyStep: number }
 ): Promise<AsterOrder | undefined> {
   const type = "MARKET";
-  if (isOperating(locks, type)) return;
+  const lockKey = buildLockKey(type, side, reduceOnly);
+  if (isOperating(locks, lockKey)) return;
   if (!enforceMarkPriceGuard(side, guard?.expectedPrice ?? null, guard, log, "市价单")) return;
   const qtyStep = opts?.qtyStep ?? 0.001;
   const params: CreateOrderParams = {
@@ -202,15 +231,15 @@ export async function placeMarketOrder(
     quantity: roundQtyDownToStep(amount, qtyStep),
   };
   if (reduceOnly) params.reduceOnly = "true";
-  await deduplicateOrders(adapter, symbol, openOrders, locks, timers, pendings, type, side, log);
-  lockOperating(locks, timers, pendings, type, log);
+  await deduplicateOrders(adapter, symbol, openOrders, locks, timers, pendings, type, side, log, reduceOnly);
+  lockOperating(locks, timers, pendings, lockKey, log);
   try {
     const order = await adapter.createOrder(params);
-    pendings[type] = String(order.orderId);
+    pendings[lockKey] = String(order.orderId);
     log("order", `市价单: ${side} 数量 ${params.quantity} reduceOnly=${reduceOnly}`);
     return order;
   } catch (err) {
-    unlockOperating(locks, timers, pendings, type);
+    unlockOperating(locks, timers, pendings, lockKey);
     if (isUnknownOrderError(err)) {
       log("order", "市价单失败但订单已不存在，忽略");
       return undefined;
@@ -235,7 +264,8 @@ export async function placeStopLossOrder(
   opts?: { priceTick: number; qtyStep: number }
 ): Promise<AsterOrder | undefined> {
   const type = "STOP_MARKET";
-  if (isOperating(locks, type)) return;
+  const lockKey = buildLockKey(type, side, true);
+  if (isOperating(locks, lockKey)) return;
   if (!enforceMarkPriceGuard(side, stopPrice, guard, log, "止损单")) return;
   if (lastPrice != null) {
     if (side === "SELL" && stopPrice >= lastPrice) {
@@ -266,15 +296,15 @@ export async function placeStopLossOrder(
   };
 
   // Avoid forcing price for STOP_MARKET globally; keep this exchange-specific in gateways
-  await deduplicateOrders(adapter, symbol, openOrders, locks, timers, pendings, type, side, log);
-  lockOperating(locks, timers, pendings, type, log);
+  await deduplicateOrders(adapter, symbol, openOrders, locks, timers, pendings, type, side, log, true);
+  lockOperating(locks, timers, pendings, lockKey, log);
   try {
     const order = await adapter.createOrder(params);
-    pendings[type] = String(order.orderId);
+    pendings[lockKey] = String(order.orderId);
     log("stop", `挂止损单: ${side} STOP_MARKET @ ${params.stopPrice}`);
     return order;
   } catch (err) {
-    unlockOperating(locks, timers, pendings, type);
+    unlockOperating(locks, timers, pendings, lockKey);
     if (isUnknownOrderError(err)) {
       log("order", "止损单已失效，跳过");
       return undefined;
@@ -299,7 +329,8 @@ export async function placeTrailingStopOrder(
   opts?: { priceTick: number; qtyStep: number }
 ): Promise<AsterOrder | undefined> {
   const type = "TRAILING_STOP_MARKET";
-  if (isOperating(locks, type)) return;
+  const lockKey = buildLockKey(type, side, true);
+  if (isOperating(locks, lockKey)) return;
   if (!enforceMarkPriceGuard(side, activationPrice, guard, log, "动态止盈单")) return;
   const priceTick = opts?.priceTick ?? 0.1;
   const qtyStep = opts?.qtyStep ?? 0.001;
@@ -313,18 +344,18 @@ export async function placeTrailingStopOrder(
     callbackRate,
     timeInForce: "GTC",
   };
-  await deduplicateOrders(adapter, symbol, openOrders, locks, timers, pendings, type, side, log);
-  lockOperating(locks, timers, pendings, type, log);
+  await deduplicateOrders(adapter, symbol, openOrders, locks, timers, pendings, type, side, log, true);
+  lockOperating(locks, timers, pendings, lockKey, log);
   try {
     const order = await adapter.createOrder(params);
-    pendings[type] = String(order.orderId);
+    pendings[lockKey] = String(order.orderId);
     log(
       "order",
       `挂动态止盈单: ${side} activation=${params.activationPrice} callbackRate=${callbackRate}`
     );
     return order;
   } catch (err) {
-    unlockOperating(locks, timers, pendings, type);
+    unlockOperating(locks, timers, pendings, lockKey);
     if (isUnknownOrderError(err)) {
       log("order", "动态止盈单已失效，跳过");
       return undefined;
@@ -357,7 +388,8 @@ export async function placeAtomicDualWithStops(
   guard: AtomicDualGuardOptions
 ): Promise<AsterOrder[] | undefined> {
   const type = "LIMIT";
-  if (isOperating(locks, type)) return;
+  const dualKey = "LIMIT:DUAL";
+  if (isOperating(locks, dualKey)) return;
 
   const buyPrice = Number(buy.price);
   const sellPrice = Number(sell.price);
@@ -365,11 +397,11 @@ export async function placeAtomicDualWithStops(
   if (!enforceMarkPriceGuard("SELL", sellPrice, guard, log, "原子挂单(SELL)")) return;
 
   // Deduplicate existing LIMITs per side before placement
-  await deduplicateOrders(adapter, symbol, openOrders, locks, timers, pendings, type, "BUY", log);
-  await deduplicateOrders(adapter, symbol, openOrders, locks, timers, pendings, type, "SELL", log);
+  await deduplicateOrders(adapter, symbol, openOrders, locks, timers, pendings, type, "BUY", log, false);
+  await deduplicateOrders(adapter, symbol, openOrders, locks, timers, pendings, type, "SELL", log, false);
 
   const hasBulk = (adapter as any)?.createBulkOrders && adapter.id === "grvt";
-  lockOperating(locks, timers, pendings, type, log);
+  lockOperating(locks, timers, pendings, dualKey, log);
 
   try {
     const paramsList: CreateOrderParams[] = [];
@@ -435,7 +467,7 @@ export async function placeAtomicDualWithStops(
       try {
         const created: AsterOrder[] = await (adapter as any).createBulkOrders(paramsList);
         const ids = created.map((o) => String(o.orderId));
-        pendings[type] = ids[0] ?? null;
+        pendings[dualKey] = ids[0] ?? null;
         log(
           "order",
           `GRVT 原子挂单: BUY@${buyPrice} SELL@${sellPrice}` + (guard.attachStops ? " + OSO止损" : "")
@@ -447,64 +479,68 @@ export async function placeAtomicDualWithStops(
       }
     }
 
-    // Fallback: sequential placement
-    const placed: AsterOrder[] = [];
-    const buyOrder = await adapter.createOrder({
-      symbol,
-      side: "BUY",
-      type: "LIMIT",
-      quantity: roundQtyDownToStep(buy.amount, guard.qtyStep),
-      price: buyPrice,
-      timeInForce: "GTX",
-    });
-    placed.push(buyOrder);
-    const sellOrder = await adapter.createOrder({
-      symbol,
-      side: "SELL",
-      type: "LIMIT",
-      quantity: roundQtyDownToStep(sell.amount, guard.qtyStep),
-      price: sellPrice,
-      timeInForce: "GTX",
-    });
-    placed.push(sellOrder);
-
-    if (guard.attachStops) {
-      await adapter.createOrder({
-        symbol,
-        side: "SELL",
-        type: "STOP_MARKET",
-        quantity: roundQtyDownToStep(buy.amount, guard.qtyStep),
-        stopPrice: roundDownToTick(
-          calcStopLossPrice(buyPrice, roundQtyDownToStep(buy.amount, guard.qtyStep), "long", guard.lossLimitUsd),
-          guard.priceTick
-        ),
-        reduceOnly: "true",
-        closePosition: "true",
-        timeInForce: "GTC",
-        triggerType: "STOP_LOSS",
-      });
-      await adapter.createOrder({
+    // Fallback: parallel placement of BUY and SELL
+    const [buyOrderRes, sellOrderRes] = await Promise.allSettled([
+      adapter.createOrder({
         symbol,
         side: "BUY",
-        type: "STOP_MARKET",
+        type: "LIMIT",
+        quantity: roundQtyDownToStep(buy.amount, guard.qtyStep),
+        price: buyPrice,
+        timeInForce: "GTX",
+      }),
+      adapter.createOrder({
+        symbol,
+        side: "SELL",
+        type: "LIMIT",
         quantity: roundQtyDownToStep(sell.amount, guard.qtyStep),
-        stopPrice: roundDownToTick(
-          calcStopLossPrice(sellPrice, roundQtyDownToStep(sell.amount, guard.qtyStep), "short", guard.lossLimitUsd),
-          guard.priceTick
-        ),
-        reduceOnly: "true",
-        closePosition: "true",
-        timeInForce: "GTC",
-        triggerType: "STOP_LOSS",
-      });
+        price: sellPrice,
+        timeInForce: "GTX",
+      }),
+    ]);
+    const placed: AsterOrder[] = [];
+    if (buyOrderRes.status === "fulfilled") placed.push(buyOrderRes.value);
+    if (sellOrderRes.status === "fulfilled") placed.push(sellOrderRes.value);
+
+    if (guard.attachStops) {
+      await Promise.all([
+        adapter.createOrder({
+          symbol,
+          side: "SELL",
+          type: "STOP_MARKET",
+          quantity: roundQtyDownToStep(buy.amount, guard.qtyStep),
+          stopPrice: roundDownToTick(
+            calcStopLossPrice(buyPrice, roundQtyDownToStep(buy.amount, guard.qtyStep), "long", guard.lossLimitUsd),
+            guard.priceTick
+          ),
+          reduceOnly: "true",
+          closePosition: "true",
+          timeInForce: "GTC",
+          triggerType: "STOP_LOSS",
+        }),
+        adapter.createOrder({
+          symbol,
+          side: "BUY",
+          type: "STOP_MARKET",
+          quantity: roundQtyDownToStep(sell.amount, guard.qtyStep),
+          stopPrice: roundDownToTick(
+            calcStopLossPrice(sellPrice, roundQtyDownToStep(sell.amount, guard.qtyStep), "short", guard.lossLimitUsd),
+            guard.priceTick
+          ),
+          reduceOnly: "true",
+          closePosition: "true",
+          timeInForce: "GTC",
+          triggerType: "STOP_LOSS",
+        }),
+      ]);
     }
 
     const firstId = placed[0]?.orderId;
-    pendings[type] = firstId != null ? String(firstId) : null;
+    pendings[dualKey] = firstId != null ? String(firstId) : null;
     log("order", `顺序挂单: BUY@${buyPrice} SELL@${sellPrice}` + (guard.attachStops ? " + 止损" : ""));
     return placed;
   } catch (err) {
-    unlockOperating(locks, timers, pendings, type);
+    unlockOperating(locks, timers, pendings, dualKey);
     if (isUnknownOrderError(err)) {
       log("order", "原子挂单失败但订单已不存在，忽略");
       return undefined;
@@ -527,7 +563,8 @@ export async function marketClose(
   opts?: { qtyStep: number }
 ): Promise<void> {
   const type = "MARKET";
-  if (isOperating(locks, type)) return;
+  const lockKey = buildLockKey(type, side, true);
+  if (isOperating(locks, lockKey)) return;
   if (!enforceMarkPriceGuard(side, guard?.expectedPrice ?? null, guard, log, "市价平仓")) return;
 
   const params: CreateOrderParams = {
@@ -538,14 +575,14 @@ export async function marketClose(
     reduceOnly: "true",
   };
   
-  await deduplicateOrders(adapter, symbol, openOrders, locks, timers, pendings, type, side, log);
-  lockOperating(locks, timers, pendings, type, log);
+  await deduplicateOrders(adapter, symbol, openOrders, locks, timers, pendings, type, side, log, true);
+  lockOperating(locks, timers, pendings, lockKey, log);
   try {
     const order = await adapter.createOrder(params);
-    pendings[type] = String(order.orderId);
+    pendings[lockKey] = String(order.orderId);
     log("close", `市价平仓: ${side}`);
   } catch (err) {
-    unlockOperating(locks, timers, pendings, type);
+    unlockOperating(locks, timers, pendings, lockKey);
     if (isUnknownOrderError(err)) {
       log("order", "市场平仓时订单已不存在");
       return;
