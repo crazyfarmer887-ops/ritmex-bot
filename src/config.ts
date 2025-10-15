@@ -91,6 +91,10 @@ export interface MakerConfig {
   maxCloseSlippagePct: number;
   priceTick: number;
   grvtAtomicMakerEnabled?: boolean;
+  // Take-profit ladder configuration (quote currency increments)
+  tpLadderStartUsd?: number; // starting offset above/below entry to place first TP
+  tpLadderStepUsd?: number;  // increment between ladder rungs
+  tpLadderCount?: number;    // number of rungs to place
 }
 
 export const makerConfig: MakerConfig = {
@@ -112,6 +116,18 @@ export const makerConfig: MakerConfig = {
     const n = raw.trim().toLowerCase();
     return n === "1" || n === "true" || n === "yes" || n === "on";
   })(),
+  tpLadderStartUsd: parseNumber(
+    process.env.MAKER_TP_LADDER_START_USD ?? process.env.TP_LADDER_START_USD,
+    0.01
+  ),
+  tpLadderStepUsd: parseNumber(
+    process.env.MAKER_TP_LADDER_STEP_USD ?? process.env.TP_LADDER_STEP_USD,
+    0.01
+  ),
+  tpLadderCount: Math.max(
+    1,
+    Math.floor(parseNumber(process.env.MAKER_TP_LADDER_COUNT ?? process.env.TP_LADDER_COUNT, 20))
+  ),
 };
 
 export interface BasisArbConfig {

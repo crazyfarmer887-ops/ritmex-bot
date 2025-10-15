@@ -192,7 +192,7 @@ export async function placeMarketOrder(
   opts?: { qtyStep: number }
 ): Promise<AsterOrder | undefined> {
   // Enforce LIMIT-only trading: emulate market with IOC LIMIT at expected price
-  const lockKey = "LIMIT"; // use LIMIT lock namespace going forward
+  const lockKey = "MARKET"; // keep MARKET namespace for compatibility
   if (isOperating(locks, lockKey)) return;
   const expected = guard?.expectedPrice ?? guard?.markPrice ?? null;
   if (!enforceMarkPriceGuard(side, expected, guard, log, "市价单")) return;
@@ -537,7 +537,7 @@ export async function marketClose(
   opts?: { qtyStep: number }
 ): Promise<void> {
   // Replace MARKET close with IOC LIMIT close at expected price
-  const lockKey = "LIMIT";
+  const lockKey = "MARKET"; // keep MARKET namespace for compatibility
   if (isOperating(locks, lockKey)) return;
   const expected = guard?.expectedPrice ?? guard?.markPrice ?? null;
   if (!enforceMarkPriceGuard(side, expected, guard, log, "市价平仓")) return;
