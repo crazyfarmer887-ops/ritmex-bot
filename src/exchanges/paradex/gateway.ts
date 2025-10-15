@@ -556,7 +556,12 @@ export class ParadexGateway {
 
     const extraParams: Record<string, unknown> = {};
     if (params.stopPrice !== undefined) extraParams.stopPrice = params.stopPrice;
-    if (params.timeInForce) extraParams.timeInForce = params.timeInForce;
+    if (params.timeInForce) {
+      // Paradex accepts timeInForce, but does not have explicit post-only flag.
+      // Honor GTX by hinting GTC and avoiding aggressive pricing at strategy layer (already enforced).
+      // Passing GTX as-is allows CCXT to map to the closest supported behavior.
+      extraParams.timeInForce = params.timeInForce;
+    }
     if (params.reduceOnly !== undefined) {
       extraParams.reduceOnly = params.reduceOnly === "true";
     }

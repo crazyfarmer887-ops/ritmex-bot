@@ -88,7 +88,8 @@ export async function deduplicateOrders(
   pendings: OrderPendingMap,
   type: string,
   side: string,
-  log: LogHandler
+  log: LogHandler,
+  lockKeyOverride?: string
 ): Promise<void> {
   // Treat STOP orders on some exchanges (e.g., Lighter) as LIMIT with stopPrice populated.
   const sameTypeOrders = openOrders.filter((o) => {
@@ -107,8 +108,9 @@ export async function deduplicateOrders(
   const toCancel = sameTypeOrders.slice(1);
   const orderIdList = toCancel.map((o) => o.orderId);
   if (!orderIdList.length) return;
+  const lockKey = lockKeyOverride ?? type;
   try {
-    lockOperating(locks, timers, pendings, type, log);
+    lockOperating(locks, timers, pendings, lockKey, log);
     await adapter.cancelOrders({ symbol, orderIdList });
     log("order", `去重撤销重复 ${type} 单: ${orderIdList.join(",")}`);
   } catch (err) {
@@ -118,7 +120,7 @@ export async function deduplicateOrders(
       log("error", `去重撤单失败: ${String(err)}`);
     }
   } finally {
-    unlockOperating(locks, timers, pendings, type);
+    unlockOperating(locks, timers, pendings, lockKey);
   }
 }
 
@@ -141,10 +143,11 @@ export async function placeOrder(
   log: LogHandler,
   reduceOnly = false,
   guard?: OrderGuardOptions,
-  opts?: PlaceOrderOptions
+  opts?: PlaceOrderOptions & { lockKey?: string }
 ): Promise<AsterOrder | undefined> {
   const type = "LIMIT";
-  if (isOperating(locks, type)) return;
+  const lockKey = opts?.lockKey ?? type;
+  if (isOperating(locks, lockKey)) return;
   const priceNum = Number(price);
   if (!enforceMarkPriceGuard(side, priceNum, guard, log, "限价单")) return;
   const priceTick = opts?.priceTick ?? 0.1;
@@ -159,16 +162,27 @@ export async function placeOrder(
   };
   if (reduceOnly) params.reduceOnly = "true";
   if (!opts?.skipDedupe) {
-    await deduplicateOrders(adapter, symbol, openOrders, locks, timers, pendings, type, side, log);
+    await deduplicateOrders(
+      adapter,
+      symbol,
+      openOrders,
+      locks,
+      timers,
+      pendings,
+      type,
+      side,
+      log,
+      lockKey
+    );
   }
-  lockOperating(locks, timers, pendings, type, log);
+  lockOperating(locks, timers, pendings, lockKey, log);
   try {
     const order = await adapter.createOrder(params);
-    pendings[type] = String(order.orderId);
+    pendings[lockKey] = String(order.orderId);
     log("order", `挂限价单: ${side} @ ${params.price} 数量 ${params.quantity} reduceOnly=${reduceOnly}`);
     return order;
   } catch (err) {
-    unlockOperating(locks, timers, pendings, type);
+    unlockOperating(locks, timers, pendings, lockKey);
     if (isUnknownOrderError(err)) {
       log("order", "订单已成交或被撤销，跳过新单");
       return undefined;

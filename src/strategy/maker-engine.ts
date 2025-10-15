@@ -390,7 +390,9 @@ export class MakerEngine {
       const status = (order.status ?? "").toUpperCase();
       return !status.includes("CLOSED") && !status.includes("FILLED") && !status.includes("CANCELED");
     });
-    const { toCancel, toPlace } = makeOrderPlan(openOrders, targets);
+    const { toCancel, toPlace } = makeOrderPlan(openOrders, targets, {
+      priceToleranceAbs: this.config.priceTick / 2,
+    });
 
     for (const order of toCancel) {
       if (this.pendingCancelOrders.has(String(order.orderId))) continue;
@@ -441,6 +443,7 @@ export class MakerEngine {
           {
             priceTick: this.config.priceTick,
             qtyStep: 0.001, // 默认数量步长
+            lockKey: `LIMIT_${target.side}`,
           }
         );
       } catch (error) {
