@@ -447,57 +447,68 @@ export async function placeAtomicDualWithStops(
       }
     }
 
-    // Fallback: sequential placement
-    const placed: AsterOrder[] = [];
-    const buyOrder = await adapter.createOrder({
-      symbol,
-      side: "BUY",
-      type: "LIMIT",
-      quantity: roundQtyDownToStep(buy.amount, guard.qtyStep),
-      price: buyPrice,
-      timeInForce: "GTX",
-    });
-    placed.push(buyOrder);
-    const sellOrder = await adapter.createOrder({
-      symbol,
-      side: "SELL",
-      type: "LIMIT",
-      quantity: roundQtyDownToStep(sell.amount, guard.qtyStep),
-      price: sellPrice,
-      timeInForce: "GTX",
-    });
-    placed.push(sellOrder);
-
-    if (guard.attachStops) {
-      await adapter.createOrder({
-        symbol,
-        side: "SELL",
-        type: "STOP_MARKET",
-        quantity: roundQtyDownToStep(buy.amount, guard.qtyStep),
-        stopPrice: roundDownToTick(
-          calcStopLossPrice(buyPrice, roundQtyDownToStep(buy.amount, guard.qtyStep), "long", guard.lossLimitUsd),
-          guard.priceTick
-        ),
-        reduceOnly: "true",
-        closePosition: "true",
-        timeInForce: "GTC",
-        triggerType: "STOP_LOSS",
-      });
-      await adapter.createOrder({
+    // Fallback: parallel placement for simultaneous execution
+    const orderPromises: Promise<AsterOrder>[] = [];
+    
+    // Place BUY and SELL orders simultaneously
+    orderPromises.push(
+      adapter.createOrder({
         symbol,
         side: "BUY",
-        type: "STOP_MARKET",
+        type: "LIMIT",
+        quantity: roundQtyDownToStep(buy.amount, guard.qtyStep),
+        price: buyPrice,
+        timeInForce: "GTX",
+      })
+    );
+    orderPromises.push(
+      adapter.createOrder({
+        symbol,
+        side: "SELL",
+        type: "LIMIT",
         quantity: roundQtyDownToStep(sell.amount, guard.qtyStep),
-        stopPrice: roundDownToTick(
-          calcStopLossPrice(sellPrice, roundQtyDownToStep(sell.amount, guard.qtyStep), "short", guard.lossLimitUsd),
-          guard.priceTick
-        ),
-        reduceOnly: "true",
-        closePosition: "true",
-        timeInForce: "GTC",
-        triggerType: "STOP_LOSS",
-      });
+        price: sellPrice,
+        timeInForce: "GTX",
+      })
+    );
+
+    if (guard.attachStops) {
+      orderPromises.push(
+        adapter.createOrder({
+          symbol,
+          side: "SELL",
+          type: "STOP_MARKET",
+          quantity: roundQtyDownToStep(buy.amount, guard.qtyStep),
+          stopPrice: roundDownToTick(
+            calcStopLossPrice(buyPrice, roundQtyDownToStep(buy.amount, guard.qtyStep), "long", guard.lossLimitUsd),
+            guard.priceTick
+          ),
+          reduceOnly: "true",
+          closePosition: "true",
+          timeInForce: "GTC",
+          triggerType: "STOP_LOSS",
+        })
+      );
+      orderPromises.push(
+        adapter.createOrder({
+          symbol,
+          side: "BUY",
+          type: "STOP_MARKET",
+          quantity: roundQtyDownToStep(sell.amount, guard.qtyStep),
+          stopPrice: roundDownToTick(
+            calcStopLossPrice(sellPrice, roundQtyDownToStep(sell.amount, guard.qtyStep), "short", guard.lossLimitUsd),
+            guard.priceTick
+          ),
+          reduceOnly: "true",
+          closePosition: "true",
+          timeInForce: "GTC",
+          triggerType: "STOP_LOSS",
+        })
+      );
     }
+
+    // Execute all orders in parallel
+    const placed = await Promise.all(orderPromises);
 
     const firstId = placed[0]?.orderId;
     pendings[type] = firstId != null ? String(firstId) : null;

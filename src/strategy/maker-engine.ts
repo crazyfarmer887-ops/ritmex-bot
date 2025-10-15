@@ -432,11 +432,11 @@ export class MakerEngine {
       );
     }
 
-    for (const target of toPlace) {
-      if (!target) continue;
-      if (target.amount < EPS) continue;
-      try {
-        await placeOrder(
+    // Place all orders simultaneously using Promise.allSettled
+    const orderPromises = toPlace
+      .filter((target) => target && target.amount >= EPS)
+      .map((target) =>
+        placeOrder(
           this.exchange,
           this.config.symbol,
           this.openOrders,
@@ -456,18 +456,19 @@ export class MakerEngine {
             priceTick: this.config.priceTick,
             qtyStep: 0.001, // 默认数量步长
           }
-        );
-      } catch (error) {
-        if (isInsufficientBalanceError(error)) {
-          this.registerInsufficientBalance(error);
-          break;
-        }
-        this.tradeLog.push(
-          "error",
-          `挂单失败(${target.side} ${target.price}): ${extractMessage(error)}`
-        );
-      }
-    }
+        ).catch((error) => {
+          if (isInsufficientBalanceError(error)) {
+            this.registerInsufficientBalance(error);
+          }
+          this.tradeLog.push(
+            "error",
+            `挂单失败(${target.side} ${target.price}): ${extractMessage(error)}`
+          );
+          return undefined;
+        })
+      );
+
+    await Promise.allSettled(orderPromises);
   }
 
   private async checkRisk(position: PositionSnapshot, bidPrice: number, askPrice: number): Promise<void> {
