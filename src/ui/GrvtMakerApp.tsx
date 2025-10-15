@@ -33,7 +33,7 @@ export function GrvtMakerApp({ onExit }: GrvtMakerAppProps) {
   if (!snapshot) {
     return (
       <Box flexDirection="column">
-        <Text color="yellow">加载 GRVT Maker 策略...</Text>
+        <Text color="yellow">🔄 GRVT 마켓 메이킹 전략 로딩 중...</Text>
       </Box>
     );
   }
@@ -42,7 +42,7 @@ export function GrvtMakerApp({ onExit }: GrvtMakerAppProps) {
     snapshot;
 
   const posAbs = Math.abs(position.positionAmt);
-  const posLabel = position.positionAmt > 0 ? "多" : position.positionAmt < 0 ? "空" : "平";
+  const posLabel = position.positionAmt > 0 ? "📈 롱" : position.positionAmt < 0 ? "📉 숏" : "평탄";
   const posColor = position.positionAmt > 0 ? "green" : position.positionAmt < 0 ? "red" : "gray";
 
   // 找出止损单
@@ -66,10 +66,10 @@ export function GrvtMakerApp({ onExit }: GrvtMakerAppProps) {
   });
 
   const feedStatusText = [
-    feedStatus.account ? "✓账户" : "✗账户",
-    feedStatus.orders ? "✓订单" : "✗订单",
-    feedStatus.depth ? "✓深度" : "✗深度",
-    feedStatus.ticker ? "✓行情" : "✗行情",
+    feedStatus.account ? "✓계정" : "✗계정",
+    feedStatus.orders ? "✓주문" : "✗주문",
+    feedStatus.depth ? "✓호가" : "✗호가",
+    feedStatus.ticker ? "✓시세" : "✗시세",
   ].join(" ");
 
   return (
@@ -81,7 +81,7 @@ export function GrvtMakerApp({ onExit }: GrvtMakerAppProps) {
       </Box>
       <Box marginBottom={1} paddingLeft={2}>
         <Text bold color="cyan">
-          GRVT Maker 策略 (同步买卖 + 自动止损)
+          GRVT 마켓 메이킹 전략 (동기화 매매 + 자동 손절)
         </Text>
       </Box>
       <Box marginBottom={1}>
@@ -92,18 +92,18 @@ export function GrvtMakerApp({ onExit }: GrvtMakerAppProps) {
 
       <Box marginBottom={1} paddingLeft={2}>
         <Text>
-          币对: <Text color="white">{snapshot.symbol}</Text> | 数据源: {feedStatusText}
+          심볼: <Text color="white">{snapshot.symbol}</Text> | 데이터 상태: {feedStatusText}
         </Text>
       </Box>
 
       <Box marginBottom={1} paddingLeft={2}>
         <Box flexDirection="column">
           <Text>
-            <Text color="green">买价: {topBid != null ? formatPrice(topBid) : "N/A"}</Text>
+            <Text color="green">최고매수: {topBid != null ? formatPrice(topBid) : "N/A"}</Text>
             {"  "}
-            <Text color="red">卖价: {topAsk != null ? formatPrice(topAsk) : "N/A"}</Text>
+            <Text color="red">최저매도: {topAsk != null ? formatPrice(topAsk) : "N/A"}</Text>
             {"  "}
-            <Text color="yellow">价差: {spread != null ? formatPrice(spread) : "N/A"}</Text>
+            <Text color="yellow">스프레드: {spread != null ? formatPrice(spread) : "N/A"}</Text>
           </Text>
         </Box>
       </Box>
@@ -117,13 +117,13 @@ export function GrvtMakerApp({ onExit }: GrvtMakerAppProps) {
       <Box marginBottom={1} paddingLeft={2}>
         <Box flexDirection="column">
           <Text>
-            持仓: <Text color={posColor}>{posLabel}</Text> {posAbs.toFixed(4)} | 
-            均价: {formatPrice(position.entryPrice)} | 
+            포지션: <Text color={posColor}>{posLabel}</Text> {posAbs.toFixed(4)} | 
+            평균가: {formatPrice(position.entryPrice)} | 
             PnL: <Text color={pnl >= 0 ? "green" : "red"}>{pnl.toFixed(4)}</Text>
           </Text>
           <Text>
-            账户总未实现盈亏: <Text color={accountUnrealized >= 0 ? "green" : "red"}>{accountUnrealized.toFixed(4)}</Text> | 
-            本次交易量: {sessionVolume.toFixed(4)}
+            계정 총 미실현손익: <Text color={accountUnrealized >= 0 ? "green" : "red"}>{accountUnrealized.toFixed(4)}</Text> | 
+            총 거래량: {sessionVolume.toFixed(4)}
           </Text>
         </Box>
       </Box>
@@ -137,16 +137,16 @@ export function GrvtMakerApp({ onExit }: GrvtMakerAppProps) {
       <Box marginBottom={1} paddingLeft={2}>
         <Box flexDirection="column">
           <Text bold color="magenta">
-            入场单 ({entryOrders.length}):
+            진입 주문 ({entryOrders.length}):
           </Text>
           {entryOrders.length > 0 ? (
             entryOrders.map((o) => (
               <Text key={o.orderId}>
-                  {o.side === "BUY" ? "🟢" : "🔴"} {o.side} @ {formatPrice(Number(o.price))} | 数量: {Number(o.origQty).toFixed(4)}
+                  {o.side === "BUY" ? "🟢" : "🔴"} {o.side} @ {formatPrice(Number(o.price))} | 수량: {Number(o.origQty).toFixed(4)}
               </Text>
             ))
           ) : (
-            <Text color="gray">无入场挂单</Text>
+            <Text color="gray">진입 주문 없음</Text>
           )}
         </Box>
       </Box>
@@ -154,16 +154,16 @@ export function GrvtMakerApp({ onExit }: GrvtMakerAppProps) {
       <Box marginBottom={1} paddingLeft={2}>
         <Box flexDirection="column">
           <Text bold color="yellow">
-            止损单 ({stopOrders.length}):
+            손절 주문 ({stopOrders.length}):
           </Text>
           {stopOrders.length > 0 ? (
             stopOrders.map((o) => (
               <Text key={o.orderId}>
-                  🛑 {o.side} STOP @ {formatPrice(Number(o.stopPrice))} | 数量: {Number(o.origQty).toFixed(4)}
+                  🛑 {o.side} STOP @ {formatPrice(Number(o.stopPrice))} | 수량: {Number(o.origQty).toFixed(4)}
               </Text>
             ))
           ) : (
-            <Text color="gray">无止损单</Text>
+            <Text color="gray">손절 주문 없음</Text>
           )}
         </Box>
       </Box>
@@ -172,11 +172,11 @@ export function GrvtMakerApp({ onExit }: GrvtMakerAppProps) {
         <Box marginBottom={1} paddingLeft={2}>
           <Box flexDirection="column">
             <Text bold color="blue">
-              平仓单 ({closeOrders.length}):
+              청산 주문 ({closeOrders.length}):
             </Text>
             {closeOrders.map((o) => (
               <Text key={o.orderId}>
-                  {o.side === "BUY" ? "🟢" : "🔴"} {o.side} @ {formatPrice(Number(o.price))} | 数量: {Number(o.origQty).toFixed(4)} (RO)
+                  {o.side === "BUY" ? "🟢" : "🔴"} {o.side} @ {formatPrice(Number(o.price))} | 수량: {Number(o.origQty).toFixed(4)} (RO)
               </Text>
             ))}
           </Box>
@@ -192,7 +192,7 @@ export function GrvtMakerApp({ onExit }: GrvtMakerAppProps) {
       <Box marginBottom={1} paddingLeft={2}>
         <Box flexDirection="column">
           <Text bold color="white">
-            策略日志 (最近 {tradeLog.length} 条):
+            전략 로그 (최근 {tradeLog.length}건):
           </Text>
           {tradeLog.slice(-8).map((entry, idx) => {
             const typeColor =
