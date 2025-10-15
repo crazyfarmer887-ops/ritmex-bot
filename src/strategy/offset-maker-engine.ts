@@ -491,11 +491,11 @@ export class OffsetMakerEngine {
       );
     }
 
-    for (const target of toPlace) {
-      if (!target) continue;
-      if (target.amount < EPS) continue;
-      try {
-        await placeOrder(
+    // Place all orders simultaneously using Promise.allSettled
+    const orderPromises = toPlace
+      .filter((target) => target && target.amount >= EPS)
+      .map((target) =>
+        placeOrder(
           this.exchange,
           this.config.symbol,
           this.openOrders,
@@ -515,15 +515,21 @@ export class OffsetMakerEngine {
             priceTick: this.config.priceTick,
             qtyStep: 0.001, // 默认数量步长
           }
-        );
-        // Record last placed entry order timing and price
-        if (!target.reduceOnly) {
-          this.lastEntryOrderBySide[target.side] = { price: target.price, ts: Date.now() };
-        }
-      } catch (error) {
-        this.tradeLog.push("error", `挂单失败(${target.side} ${target.price}): ${String(error)}`);
-      }
-    }
+        )
+          .then((result) => {
+            // Record last placed entry order timing and price
+            if (!target.reduceOnly) {
+              this.lastEntryOrderBySide[target.side] = { price: target.price, ts: Date.now() };
+            }
+            return result;
+          })
+          .catch((error) => {
+            this.tradeLog.push("error", `挂单失败(${target.side} ${target.price}): ${String(error)}`);
+            return undefined;
+          })
+      );
+
+    await Promise.allSettled(orderPromises);
   }
 
   private async checkRisk(position: PositionSnapshot, bidPrice: number, askPrice: number): Promise<void> {
