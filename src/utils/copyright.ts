@@ -54,3 +54,15 @@ export function loadCopyrightFragments() {
   };
 }
 
+export function renderCopyright(): string {
+  try {
+    const fragments = loadCopyrightFragments();
+    if (fragments.integrityOk) {
+      return fragments.bannerText;
+    }
+    return "© 2025 RitMEX Bot";
+  } catch (error) {
+    return "© 2025 RitMEX Bot";
+  }
+}
+
