@@ -4,7 +4,7 @@ import { GrvtMakerEngine, type GrvtMakerEngineSnapshot } from "../strategy/grvt-
 import { makerConfig } from "../config";
 import { buildAdapterFromEnv } from "../exchanges/resolve-from-env";
 import { resolveExchangeId } from "../exchanges/create-adapter";
-import { renderCopyright } from "../utils/copyright";
+import { loadCopyrightFragments, verifyCopyrightIntegrity } from "../utils/copyright";
 import { formatPrice } from "../utils/format";
 
 interface GrvtMakerAppProps {
@@ -17,6 +17,8 @@ export function GrvtMakerApp({ onExit }: GrvtMakerAppProps) {
   const adapter = useMemo(() => buildAdapterFromEnv({ exchangeId, symbol: config.symbol }), [exchangeId, config.symbol]);
   const engine = useMemo(() => new GrvtMakerEngine(config, adapter), [config, adapter]);
   const [snapshot, setSnapshot] = useState<GrvtMakerEngineSnapshot | null>(null);
+  const copyright = useMemo(() => loadCopyrightFragments(), []);
+  const integrityOk = useMemo(() => verifyCopyrightIntegrity(), []);
 
   useEffect(() => {
     const handler = (snap: GrvtMakerEngineSnapshot) => setSnapshot(snap);
@@ -217,7 +219,12 @@ export function GrvtMakerApp({ onExit }: GrvtMakerAppProps) {
         </Box>
       </Box>
 
-      <Box marginTop={1}>{renderCopyright()}</Box>
+      <Box marginTop={1} flexDirection="column">
+        <Text color="gray">{copyright.bannerText}</Text>
+        {integrityOk ? null : (
+          <Text color="red">警告: 版权校验失败，当前版本可能被篡改。</Text>
+        )}
+      </Box>
     </Box>
   );
 }
