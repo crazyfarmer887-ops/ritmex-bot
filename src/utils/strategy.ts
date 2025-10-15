@@ -53,6 +53,27 @@ export function calcStopLossPrice(entryPrice: number, qty: number, side: "long" 
   return entryPrice + loss / Math.abs(qty);
 }
 
+/**
+ * Compute a symmetric take-profit price using the absolute USD loss used for stop-loss.
+ * For long positions, TP = entry + lossUsd / qty; for short positions, TP = entry - lossUsd / qty.
+ */
+export function calcTakeProfitPriceFromLoss(
+  entryPrice: number,
+  qty: number,
+  side: "long" | "short",
+  lossUsd: number
+): number {
+  const quantity = Math.abs(qty);
+  if (!Number.isFinite(entryPrice) || !Number.isFinite(quantity) || quantity <= 0) {
+    return entryPrice;
+  }
+  const delta = lossUsd / quantity;
+  if (side === "long") {
+    return entryPrice + delta;
+  }
+  return entryPrice - delta;
+}
+
 export function calcTrailingActivationPrice(entryPrice: number, qty: number, side: "long" | "short", profit: number): number {
   if (side === "long") {
     return entryPrice + profit / qty;

@@ -13,7 +13,7 @@ import { getPosition } from "../utils/strategy";
 import type { PositionSnapshot } from "../utils/strategy";
 import { computePositionPnl } from "../utils/pnl";
 import { getTopPrices, getMidOrLast } from "../utils/price";
-import { calcStopLossPrice } from "../utils/strategy";
+import { calcStopLossPrice, calcTakeProfitPriceFromLoss } from "../utils/strategy";
 import {
   placeStopLossOrder,
   placeOrder,
@@ -322,10 +322,18 @@ export class GrvtMakerEngine {
           desired.push({ side: "SELL", price: askPrice, amount: this.config.tradeAmount, reduceOnly: false });
         }
       } else {
-        // Has position: place close order at market price
-        const closeSide: "BUY" | "SELL" = position.positionAmt > 0 ? "SELL" : "BUY";
-        const closePrice = closeSide === "SELL" ? closeAskPrice : closeBidPrice;
-        desired.push({ side: closeSide, price: closePrice, amount: absPosition, reduceOnly: true });
+        // Has position: place reduce-only TP limit mirroring SL absolute distance
+        const hasEntryPrice = Number.isFinite(position.entryPrice) && Math.abs(position.entryPrice) > 1e-8;
+        const direction: "long" | "short" = position.positionAmt > 0 ? "long" : "short";
+        const closeSide: "BUY" | "SELL" = direction === "long" ? "SELL" : "BUY";
+        if (hasEntryPrice) {
+          const tp = calcTakeProfitPriceFromLoss(position.entryPrice, absPosition, direction, this.config.lossLimit);
+          const tpStr = formatPriceToString(tp, Math.max(0, Math.floor(Math.log10(1 / this.config.priceTick))));
+          desired.push({ side: closeSide, price: tpStr, amount: absPosition, reduceOnly: true });
+        } else {
+          const closePrice = closeSide === "SELL" ? closeAskPrice : closeBidPrice;
+          desired.push({ side: closeSide, price: closePrice, amount: absPosition, reduceOnly: true });
+        }
       }
 
       this.desiredOrders = desired;
