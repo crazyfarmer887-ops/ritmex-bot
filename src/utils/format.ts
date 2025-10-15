@@ -11,5 +11,13 @@ export function formatPrice(value: number | string | null | undefined, digits = 
 }
 
 export function formatTrendLabel(trend: "做多" | "做空" | "无信号"): string {
-  return trend;
+  switch (trend) {
+    case "做多":
+      return "롱";
+    case "做空":
+      return "숏";
+    case "无信号":
+    default:
+      return "신호 없음";
+  }
 }

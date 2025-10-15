@@ -20,32 +20,32 @@ interface StrategyOption {
 const BASE_STRATEGIES: StrategyOption[] = [
   {
     id: "trend",
-    label: "趋势跟随策略 (SMA30)",
-    description: "监控均线信号，自动进出场并维护止损/止盈",
+    label: "추세 추종 전략 (SMA30)",
+    description: "이동평균 신호를 모니터링하고 자동 진입/청산 및 손절/익절 유지",
     component: TrendApp,
   },
   {
     id: "maker",
-    label: "做市刷单策略",
-    description: "双边挂单提供流动性，自动追价与风控止损",
+    label: "메이커 전략",
+    description: "양방향 지정가로 유동성 제공, 자동 리프라이스와 리스크 손절",
     component: MakerApp,
   },
   {
     id: "grid",
-    label: "基础网格策略",
-    description: "在上下边界之间布设等比网格，自动加仓与减仓",
+    label: "기본 그리드 전략",
+    description: "상/하 경계 사이에 등비 격자를 깔고 자동 증/감량",
     component: GridApp,
   },
   {
     id: "offset-maker",
-    label: "偏移做市策略",
-    description: "根据盘口深度自动偏移挂单并在极端不平衡时撤退",
+    label: "오프셋 메이커 전략",
+    description: "호가창 깊이에 따라 자동 오프셋, 극단적 불균형 시 철수",
     component: OffsetMakerApp,
   },
   {
     id: "grvt-maker",
-    label: "GRVT 同步做市策略",
-    description: "双边同步做市，自动止损保护 (适用于 GRVT 交易所)",
+    label: "GRVT 동기 메이커 전략",
+    description: "양방향 동기 메이킹, 자동 손절 보호 (GRVT 전용)",
     component: GrvtMakerApp,
   },
 ];
@@ -99,13 +99,13 @@ export function App() {
     <Box flexDirection="column" paddingX={1} paddingY={1}>
       <Text color="gray">{copyright.bannerText}</Text>
       {integrityOk ? null : (
-        <Text color="red">警告: 版权校验失败，当前版本可能被篡改。</Text>
+        <Text color="red">경고: 저작권 무결성 검증 실패, 현재 버전이 변조되었을 수 있습니다.</Text>
       )}
       <Box height={1}>
         <Text color="gray">────────────────────────────────────────────────────</Text>
       </Box>
-      <Text color="cyanBright">请选择要运行的策略</Text>
-      <Text color="gray">使用 ↑/↓ 选择，回车开始，Ctrl+C 退出。</Text>
+      <Text color="cyanBright">실행할 전략을 선택하세요</Text>
+      <Text color="gray">위/아래 화살표로 선택, Enter 시작, Ctrl+C 종료</Text>
       <Box flexDirection="column" marginTop={1}>
         {strategies.map((strategy, index) => {
           const active = index === cursor;
