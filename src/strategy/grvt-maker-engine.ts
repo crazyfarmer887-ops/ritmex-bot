@@ -63,12 +63,11 @@ const INSUFFICIENT_BALANCE_COOLDOWN_MS = 15_000;
 
 /**
  * GRVT Maker Engine with synchronized buy/sell trading and automatic stop loss.
- * 
- * Key features:
- * - Places both BUY and SELL orders simultaneously for market-making
- * - When one side fills, immediately cancels the other side
- * - Automatically places stop loss orders using GRVT trigger system
- * - Ensures trades don't operate independently
+ *
+ * Notes:
+ * - Entry orders are placed sequentially (no simultaneous dual placement).
+ * - When one side fills, the opposite entry is canceled.
+ * - Stop-loss orders are managed via GRVT trigger semantics.
  */
 export class GrvtMakerEngine {
   private accountSnapshot: AsterAccountSnapshot | null = null;
