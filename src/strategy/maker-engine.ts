@@ -14,7 +14,7 @@ import { getPosition } from "../utils/strategy";
 import type { PositionSnapshot } from "../utils/strategy";
 import { computePositionPnl } from "../utils/pnl";
 import { getTopPrices, getMidOrLast } from "../utils/price";
-import { calcStopLossPrice } from "../utils/strategy";
+import { calcStopLossPrice, calcTakeProfitPriceFromLoss } from "../utils/strategy";
 import { marketClose, placeStopLossOrder, placeOrder, unlockOperating, placeAtomicDualWithStops } from "../core/order-coordinator";
 import type { OrderLockMap, OrderPendingMap, OrderTimerMap } from "../core/order-coordinator";
 import { makeOrderPlan } from "../core/lib/order-plan";
@@ -326,9 +326,18 @@ export class MakerEngine {
           desired.push({ side: "SELL", price: askPrice, amount: this.config.tradeAmount, reduceOnly: false });
         }
       } else {
-        const closeSide: "BUY" | "SELL" = position.positionAmt > 0 ? "SELL" : "BUY";
-        const closePrice = closeSide === "SELL" ? closeAskPrice : closeBidPrice;
-        desired.push({ side: closeSide, price: closePrice, amount: absPosition, reduceOnly: true });
+        const hasEntryPrice = Number.isFinite(position.entryPrice) && Math.abs(position.entryPrice) > 1e-8;
+        const direction: "long" | "short" = position.positionAmt > 0 ? "long" : "short";
+        const closeSide: "BUY" | "SELL" = direction === "long" ? "SELL" : "BUY";
+        const priceDecimals = Math.max(0, Math.floor(Math.log10(1 / this.config.priceTick)));
+        if (hasEntryPrice) {
+          const tp = calcTakeProfitPriceFromLoss(position.entryPrice, absPosition, direction, this.config.lossLimit);
+          const tpStr = formatPriceToString(tp, priceDecimals);
+          desired.push({ side: closeSide, price: tpStr, amount: absPosition, reduceOnly: true });
+        } else {
+          const closePrice = closeSide === "SELL" ? closeAskPrice : closeBidPrice;
+          desired.push({ side: closeSide, price: closePrice, amount: absPosition, reduceOnly: true });
+        }
       }
 
       this.desiredOrders = desired;
