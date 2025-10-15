@@ -77,14 +77,14 @@ describe("order-coordinator", () => {
       timers,
       pending,
       "BUY",
-      100,
+      "100",
       1,
       log,
       false
     );
     expect(adapter.createOrder).toHaveBeenCalled();
     expect(pending.MARKET).toBeUndefined();
-    expect(pending.LIMIT).toBe(String(baseOrder.orderId));
+    expect(pending["LIMIT:BUY:OPEN"]).toBe(String(baseOrder.orderId));
   });
 
   it("places market order and unlocks after completion", async () => {
@@ -106,7 +106,7 @@ describe("order-coordinator", () => {
       true
     );
     expect(adapter.createOrder).toHaveBeenCalled();
-    expect(pending.MARKET).toBe(String(baseOrder.orderId));
+    expect(pending["MARKET:SELL:CLOSE"]).toBe(String(baseOrder.orderId));
   });
 
   it("places stop loss order only when valid", async () => {
@@ -207,6 +207,23 @@ describe("order-coordinator", () => {
     expect((adapter as any).createBulkOrders).toHaveBeenCalled();
     expect(result?.length).toBe(4);
     expect(log).toHaveBeenCalledWith("order", expect.stringContaining("GRVT 原子挂单"));
+  });
+
+  it("allows concurrent OPEN and CLOSE LIMIT operations (independent locks)", async () => {
+    const createOrder = vi.fn(async (p: any) => ({ ...baseOrder, orderId: Math.random(), side: p.side, type: p.type, reduceOnly: p.reduceOnly === "true" } as AsterOrder));
+    const adapter = createMockExchange({ createOrder } as any);
+    const locks: OrderLockMap = {};
+    const timers: OrderTimerMap = {};
+    const pending: OrderPendingMap = {};
+    const log = vi.fn();
+
+    const p1 = placeOrder(adapter, "BTCUSDT", [], locks, timers, pending, "BUY", "100", 1, log, false);
+    const p2 = placeOrder(adapter, "BTCUSDT", [], locks, timers, pending, "SELL", "101", 1, log, true);
+    await Promise.all([p1, p2]);
+
+    expect(createOrder).toHaveBeenCalledTimes(2);
+    expect(Object.keys(pending).some((k) => k.startsWith("LIMIT:BUY:OPEN"))).toBe(true);
+    expect(Object.keys(pending).some((k) => k.startsWith("LIMIT:SELL:CLOSE"))).toBe(true);
   });
 
   it("unlockOperating clears timers and pending", () => {

@@ -848,7 +848,8 @@ export class GridEngine {
     // Place desired orders (rate-limited per tick to avoid dedupe race)
     this.desiredOrders = desired;
     let newOrdersPlaced = 0;
-    const MAX_NEW_ORDERS_PER_TICK = 1;
+    // Allow placing up to 2 orders per tick so open/close can proceed together
+    const MAX_NEW_ORDERS_PER_TICK = 2;
     for (const d of desired) {
       if (newOrdersPlaced >= MAX_NEW_ORDERS_PER_TICK) break;
       // Gate: avoid overlapping with coordinator pending LIMIT
