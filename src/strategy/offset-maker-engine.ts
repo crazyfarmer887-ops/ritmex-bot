@@ -470,7 +470,9 @@ export class OffsetMakerEngine {
       }
     }
 
-    const { toCancel, toPlace } = makeOrderPlan(openOrders, adjustedTargets);
+    const { toCancel, toPlace } = makeOrderPlan(openOrders, adjustedTargets, {
+      priceToleranceAbs: this.config.priceTick / 2,
+    });
 
     for (const order of toCancel) {
       if (this.pendingCancelOrders.has(String(order.orderId))) continue;
@@ -523,6 +525,7 @@ export class OffsetMakerEngine {
           {
             priceTick: this.config.priceTick,
             qtyStep: 0.001, // 默认数量步长
+            lockKey: `LIMIT_${target.side}`,
           }
         );
         // Record last placed entry order timing and price

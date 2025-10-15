@@ -564,6 +564,7 @@ export class GrvtMakerEngine {
           {
             priceTick: this.config.priceTick,
             qtyStep: 0.001,
+            lockKey: `LIMIT_${target.side}`,
           }
         );
       } catch (error) {
