@@ -167,8 +167,9 @@ export class GrvtMakerEngine {
         
         // Detect position change to trigger order sync
         if (Math.abs(position.positionAmt - this.lastPositionAmt) > EPS) {
+          const prevAbs = Math.abs(this.lastPositionAmt);
+          void this.handlePositionChange(position, prevAbs);
           this.lastPositionAmt = position.positionAmt;
-          void this.handlePositionChange(position);
         }
         
         if (!this.feedArrived.account) {
@@ -322,14 +323,23 @@ export class GrvtMakerEngine {
           desired.push({ side: "SELL", price: askPrice, amount: this.config.tradeAmount, reduceOnly: false });
         }
       } else {
-        // Has position: place reduce-only TP limit mirroring SL absolute distance
+        // Has position: place reduce-only TP ladder (limit-only) while waiting for stop-loss
         const hasEntryPrice = Number.isFinite(position.entryPrice) && Math.abs(position.entryPrice) > 1e-8;
         const direction: "long" | "short" = position.positionAmt > 0 ? "long" : "short";
         const closeSide: "BUY" | "SELL" = direction === "long" ? "SELL" : "BUY";
         if (hasEntryPrice) {
-          const tp = calcTakeProfitPriceFromLoss(position.entryPrice, absPosition, direction, this.config.lossLimit);
-          const tpStr = formatPriceToString(tp, Math.max(0, Math.floor(Math.log10(1 / this.config.priceTick))));
-          desired.push({ side: closeSide, price: tpStr, amount: absPosition, reduceOnly: true });
+          const priceDecimals = Math.max(0, Math.floor(Math.log10(1 / this.config.priceTick)));
+          const entry = Number(position.entryPrice);
+          const start = Math.max(0, this.config.tpLadderStartUsd);
+          const step = Math.max(0, this.config.tpLadderStepUsd);
+          const count = Math.max(1, Math.floor(this.config.tpLadderCount));
+          const perOrderQty = absPosition / count;
+          for (let i = 0; i < count; i += 1) {
+            const offset = start + step * i;
+            const target = direction === "long" ? entry + offset : entry - offset;
+            const priceStr = formatPriceToString(target, priceDecimals);
+            desired.push({ side: closeSide, price: priceStr, amount: perOrderQty, reduceOnly: true });
+          }
         } else {
           const closePrice = closeSide === "SELL" ? closeAskPrice : closeBidPrice;
           desired.push({ side: closeSide, price: closePrice, amount: absPosition, reduceOnly: true });
@@ -403,7 +413,7 @@ export class GrvtMakerEngine {
    * Handle position changes to ensure synchronized trading
    * When a position opens (one side fills), cancel the opposite entry order
    */
-  private async handlePositionChange(position: PositionSnapshot): Promise<void> {
+  private async handlePositionChange(position: PositionSnapshot, prevAbsPosition: number = Math.abs(this.lastPositionAmt)): Promise<void> {
     const absPosition = Math.abs(position.positionAmt);
     
     if (absPosition > EPS) {
@@ -442,6 +452,21 @@ export class GrvtMakerEngine {
       // Ensure stop loss is in place for the new position
       const lastPrice = this.getReferencePrice();
       await this.ensureStopLossOrder(position, lastPrice);
+    } else {
+      // Position fully closed (e.g., TP filled or SL triggered) -> cancel all residual orders and restart
+      if (prevAbsPosition > EPS) {
+        try {
+          await this.exchange.cancelAllOrders({ symbol: this.config.symbol });
+          this.pendingCancelOrders.clear();
+          unlockOperating(this.locks, this.timers, this.pending, "LIMIT");
+          this.openOrders = [];
+          this.tradeLog.push("order", "持仓已平：撤销全部挂单并回到初始做市");
+          // reset entry wait flag
+          this.entryPricePendingLogged = false;
+        } catch (error) {
+          this.tradeLog.push("error", `平仓后撤单失败: ${String(error)}`);
+        }
+      }
     }
   }
 
