@@ -6,12 +6,13 @@ import { OffsetMakerApp } from "./OffsetMakerApp";
 import { GridApp } from "./GridApp";
 import { BasisApp } from "./BasisApp";
 import { GrvtMakerApp } from "./GrvtMakerApp";
+import { VolumeMakerApp } from "./VolumeMakerApp";
 import { isBasisStrategyEnabled } from "../config";
 import { loadCopyrightFragments, verifyCopyrightIntegrity } from "../utils/copyright";
 import { resolveExchangeId } from "../exchanges/create-adapter";
 
 interface StrategyOption {
-  id: "trend" | "maker" | "offset-maker" | "basis" | "grid" | "grvt-maker";
+  id: "trend" | "maker" | "offset-maker" | "basis" | "grid" | "grvt-maker" | "volume-maker";
   label: string;
   description: string;
   component: React.ComponentType<{ onExit: () => void }>;
@@ -47,6 +48,12 @@ const BASE_STRATEGIES: StrategyOption[] = [
     label: "GRVT 동기 메이커 전략",
     description: "양방향 동기 메이킹, 자동 손절 보호 (GRVT 전용)",
     component: GrvtMakerApp,
+  },
+  {
+    id: "volume-maker",
+    label: "볼륨 메이커 전략 (거래량 + 네거티브 수수료)",
+    description: "공격적 양방향 주문으로 거래량 극대화 및 메이커 리베이트 획득",
+    component: VolumeMakerApp,
   },
 ];
 

@@ -5,6 +5,7 @@ import { buildAdapterFromEnv } from "../exchanges/resolve-from-env";
 import { MakerEngine, type MakerEngineSnapshot } from "../strategy/maker-engine";
 import { OffsetMakerEngine, type OffsetMakerEngineSnapshot } from "../strategy/offset-maker-engine";
 import { GrvtMakerEngine, type GrvtMakerEngineSnapshot } from "../strategy/grvt-maker-engine";
+import { VolumeMakerEngine, type VolumeMakerEngineSnapshot } from "../strategy/volume-maker-engine";
 import { TrendEngine, type TrendEngineSnapshot } from "../strategy/trend-engine";
 import { BasisArbEngine, type BasisArbSnapshot } from "../strategy/basis-arb-engine";
 import { GridEngine, type GridEngineSnapshot } from "../strategy/grid-engine";
@@ -24,6 +25,7 @@ export const STRATEGY_LABELS: Record<StrategyId, string> = {
   basis: "Basis Arbitrage",
   grid: "Grid",
   "grvt-maker": "GRVT Maker (Synchronized)",
+  "volume-maker": "Volume Maker",
 };
 
 export async function startStrategy(strategyId: StrategyId, options: RunnerOptions = {}): Promise<void> {
@@ -119,6 +121,19 @@ const STRATEGY_FACTORIES: Record<StrategyId, StrategyRunner> = {
       offUpdate: (emitter) => engine.off("update", emitter),
     });
   },
+  "volume-maker": async (opts) => {
+    const config = makerConfig;
+    const adapter = createAdapterOrThrow(config.symbol);
+    const engine = new VolumeMakerEngine(config, adapter);
+    await runEngine({
+      engine,
+      strategy: "volume-maker",
+      silent: opts.silent,
+      getSnapshot: () => engine.getSnapshot(),
+      onUpdate: (emitter) => engine.on("update", emitter),
+      offUpdate: (emitter) => engine.off("update", emitter),
+    });
+  },
 };
 
 interface EngineHarness<TSnapshot> {
@@ -131,7 +146,7 @@ interface EngineHarness<TSnapshot> {
 }
 
 async function runEngine<
-  TSnapshot extends TrendEngineSnapshot | MakerEngineSnapshot | OffsetMakerEngineSnapshot | BasisArbSnapshot | GridEngineSnapshot | GrvtMakerEngineSnapshot
+  TSnapshot extends TrendEngineSnapshot | MakerEngineSnapshot | OffsetMakerEngineSnapshot | BasisArbSnapshot | GridEngineSnapshot | GrvtMakerEngineSnapshot | VolumeMakerEngineSnapshot
 >(
   harness: EngineHarness<TSnapshot>
 ): Promise<void> {
