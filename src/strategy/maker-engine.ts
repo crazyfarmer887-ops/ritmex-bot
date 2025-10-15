@@ -15,7 +15,7 @@ import type { PositionSnapshot } from "../utils/strategy";
 import { computePositionPnl } from "../utils/pnl";
 import { getTopPrices, getMidOrLast } from "../utils/price";
 import { calcStopLossPrice, calcTakeProfitPriceFromLoss } from "../utils/strategy";
-import { marketClose, placeStopLossOrder, placeOrder, unlockOperating, placeAtomicDualWithStops } from "../core/order-coordinator";
+import { placeStopLossOrder, placeOrder, unlockOperating } from "../core/order-coordinator";
 import type { OrderLockMap, OrderPendingMap, OrderTimerMap } from "../core/order-coordinator";
 import { makeOrderPlan } from "../core/lib/order-plan";
 import { safeCancelOrder } from "../core/lib/orders";
@@ -299,29 +299,8 @@ export class MakerEngine {
 
       if (absPosition < EPS) {
         this.entryPricePendingLogged = false;
-        if (canEnter && (this.exchange.id === "grvt" && this.config.grvtAtomicMakerEnabled !== false)) {
-          // Use atomic placement for GRVT to avoid desync between BUY/SELL entries and attach contingent stops
-          await placeAtomicDualWithStops(
-            this.exchange,
-            this.config.symbol,
-            this.openOrders,
-            this.locks,
-            this.timers,
-            this.pending,
-            { price: bidPrice, amount: this.config.tradeAmount },
-            { price: askPrice, amount: this.config.tradeAmount },
-            (type, detail) => this.tradeLog.push(type, detail),
-            {
-              markPrice: getPosition(this.accountSnapshot, this.config.symbol).markPrice,
-              maxPct: this.config.maxCloseSlippagePct,
-              lossLimitUsd: this.config.lossLimit,
-              priceTick: this.config.priceTick,
-              qtyStep: 0.001,
-              attachStops: true,
-            }
-          );
-        } else if (canEnter) {
-          // Non-GRVT or disabled: fall back to independent placement plan below
+        if (canEnter) {
+          // Place entry orders sequentially (no simultaneous dual placement)
           desired.push({ side: "BUY", price: bidPrice, amount: this.config.tradeAmount, reduceOnly: false });
           desired.push({ side: "SELL", price: askPrice, amount: this.config.tradeAmount, reduceOnly: false });
         }
@@ -343,10 +322,8 @@ export class MakerEngine {
       this.desiredOrders = desired;
       this.logDesiredOrders(desired);
       this.sessionVolume.update(position, this.getReferencePrice());
-      // syncOrders still handles close-only when position exists
-      if (absPosition >= EPS) {
-        await this.syncOrders(desired);
-      }
+      // Always sync desired orders sequentially (entries and exits)
+      await this.syncOrders(desired);
       await this.checkRisk(position, Number(closeBidPrice), Number(closeAskPrice));
       this.emitUpdate();
     } catch (error) {
