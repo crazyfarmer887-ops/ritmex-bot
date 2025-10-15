@@ -191,26 +191,36 @@ export async function placeMarketOrder(
   guard?: OrderGuardOptions,
   opts?: { qtyStep: number }
 ): Promise<AsterOrder | undefined> {
-  const type = "MARKET";
-  if (isOperating(locks, type)) return;
-  if (!enforceMarkPriceGuard(side, guard?.expectedPrice ?? null, guard, log, "市价单")) return;
+  // Enforce LIMIT-only trading: emulate market with IOC LIMIT at expected price
+  const lockKey = "LIMIT"; // use LIMIT lock namespace going forward
+  if (isOperating(locks, lockKey)) return;
+  const expected = guard?.expectedPrice ?? guard?.markPrice ?? null;
+  if (!enforceMarkPriceGuard(side, expected, guard, log, "市价单")) return;
+  const limitPrice = Number(expected);
+  if (!Number.isFinite(limitPrice)) {
+    log("error", "无法确定限价价格以替代市价单，已跳过");
+    return undefined;
+  }
   const qtyStep = opts?.qtyStep ?? 0.001;
   const params: CreateOrderParams = {
     symbol,
     side,
-    type,
+    type: "LIMIT",
     quantity: roundQtyDownToStep(amount, qtyStep),
+    price: limitPrice,
+    timeInForce: "IOC",
   };
   if (reduceOnly) params.reduceOnly = "true";
-  await deduplicateOrders(adapter, symbol, openOrders, locks, timers, pendings, type, side, log);
-  lockOperating(locks, timers, pendings, type, log);
+  await deduplicateOrders(adapter, symbol, openOrders, locks, timers, pendings, "LIMIT", side, log);
+  lockOperating(locks, timers, pendings, lockKey, log);
   try {
     const order = await adapter.createOrder(params);
-    pendings[type] = String(order.orderId);
+    pendings[lockKey] = String(order.orderId);
+    // Retain log wording for compatibility while using LIMIT under the hood
     log("order", `市价单: ${side} 数量 ${params.quantity} reduceOnly=${reduceOnly}`);
     return order;
   } catch (err) {
-    unlockOperating(locks, timers, pendings, type);
+    unlockOperating(locks, timers, pendings, lockKey);
     if (isUnknownOrderError(err)) {
       log("order", "市价单失败但订单已不存在，忽略");
       return undefined;
@@ -526,26 +536,36 @@ export async function marketClose(
   guard?: OrderGuardOptions,
   opts?: { qtyStep: number }
 ): Promise<void> {
-  const type = "MARKET";
-  if (isOperating(locks, type)) return;
-  if (!enforceMarkPriceGuard(side, guard?.expectedPrice ?? null, guard, log, "市价平仓")) return;
+  // Replace MARKET close with IOC LIMIT close at expected price
+  const lockKey = "LIMIT";
+  if (isOperating(locks, lockKey)) return;
+  const expected = guard?.expectedPrice ?? guard?.markPrice ?? null;
+  if (!enforceMarkPriceGuard(side, expected, guard, log, "市价平仓")) return;
+  const limitPrice = Number(expected);
+  if (!Number.isFinite(limitPrice)) {
+    log("error", "无法确定平仓限价价格，已跳过");
+    return;
+  }
 
   const params: CreateOrderParams = {
     symbol,
     side,
-    type,
+    type: "LIMIT",
     quantity,
+    price: limitPrice,
+    timeInForce: "IOC",
     reduceOnly: "true",
   };
-  
-  await deduplicateOrders(adapter, symbol, openOrders, locks, timers, pendings, type, side, log);
-  lockOperating(locks, timers, pendings, type, log);
+
+  await deduplicateOrders(adapter, symbol, openOrders, locks, timers, pendings, "LIMIT", side, log);
+  lockOperating(locks, timers, pendings, lockKey, log);
   try {
     const order = await adapter.createOrder(params);
-    pendings[type] = String(order.orderId);
+    pendings[lockKey] = String(order.orderId);
+    // Keep log wording for continuity
     log("close", `市价平仓: ${side}`);
   } catch (err) {
-    unlockOperating(locks, timers, pendings, type);
+    unlockOperating(locks, timers, pendings, lockKey);
     if (isUnknownOrderError(err)) {
       log("order", "市场平仓时订单已不存在");
       return;

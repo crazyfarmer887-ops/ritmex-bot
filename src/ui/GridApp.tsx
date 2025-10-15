@@ -59,8 +59,8 @@ export function GridApp({ onExit }: GridAppProps) {
   if (error) {
     return (
       <Box flexDirection="column" padding={1}>
-        <Text color="red">启动失败: {error.message}</Text>
-        <Text color="gray">请检查环境变量和网络连通性。</Text>
+        <Text color="red">시작 실패: {error.message}</Text>
+        <Text color="gray">환경 변수와 네트워크 연결을 확인하세요.</Text>
       </Box>
     );
   }
@@ -68,17 +68,17 @@ export function GridApp({ onExit }: GridAppProps) {
   if (!snapshot) {
     return (
       <Box padding={1}>
-        <Text>正在初始化网格策略…</Text>
+        <Text>그리드 전략 초기화 중…</Text>
       </Box>
     );
   }
 
   const feedStatus = snapshot.feedStatus;
   const feedEntries: Array<{ key: keyof typeof feedStatus; label: string }> = [
-    { key: "account", label: "账户" },
-    { key: "orders", label: "订单" },
-    { key: "depth", label: "深度" },
-    { key: "ticker", label: "行情" },
+    { key: "account", label: "계정" },
+    { key: "orders", label: "주문" },
+    { key: "depth", label: "호가" },
+    { key: "ticker", label: "시세" },
   ];
   const stopReason = snapshot.running ? null : snapshot.stopReason;
   const lastLogs = snapshot.tradeLog.slice(-5);
@@ -116,67 +116,67 @@ export function GridApp({ onExit }: GridAppProps) {
   return (
     <Box flexDirection="column" paddingX={1}>
       <Box flexDirection="column" marginBottom={1}>
-        <Text color="cyanBright">Grid Strategy Dashboard</Text>
+        <Text color="cyanBright">그리드 전략 대시보드</Text>
         <Text>
-          交易所: {exchangeName} ｜ 交易对: {snapshot.symbol} ｜ 状态: {snapshot.running ? "运行中" : "暂停"} ｜ 方向: {snapshot.direction}
+          거래소: {exchangeName} ｜ 거래쌍: {snapshot.symbol} ｜ 상태: {snapshot.running ? "실행 중" : "일시정지"} ｜ 방향: {snapshot.direction}
         </Text>
         <Text>
-          实时价格: {formatNumber(snapshot.lastPrice, 4)} ｜ 下界: {formatNumber(snapshot.lowerPrice, 4)} ｜ 上界: {formatNumber(snapshot.upperPrice, 4)} ｜ 网格数量: {snapshot.gridLines.length}
+          실시간 가격: {formatNumber(snapshot.lastPrice, 4)} ｜ 하한: {formatNumber(snapshot.lowerPrice, 4)} ｜ 상한: {formatNumber(snapshot.upperPrice, 4)} ｜ 격자 수: {snapshot.gridLines.length}
         </Text>
-        <Text color="gray">数据状态:
+        <Text color="gray">데이터 상태:
           {feedEntries.map((entry, index) => (
             <Text key={entry.key} color={feedStatus[entry.key] ? "green" : "red"}>
               {index === 0 ? " " : " "}
               {entry.label}
             </Text>
           ))}
-          ｜ 按 Esc 返回策略选择
+          ｜ Esc 로 전략 선택으로 돌아가기
         </Text>
-        {stopReason ? <Text color="yellow">暂停原因: {stopReason}</Text> : null}
+        {stopReason ? <Text color="yellow">일시정지 사유: {stopReason}</Text> : null}
       </Box>
 
       <Box flexDirection="row" marginBottom={1}>
         <Box flexDirection="column" marginRight={4}>
-          <Text color="greenBright">网格配置</Text>
+          <Text color="greenBright">그리드 설정</Text>
           <Text>
-            单笔数量: {formatNumber(gridConfig.orderSize, 6)} ｜ 最大仓位: {formatNumber(gridConfig.maxPositionSize, 6)}
+            1회 주문 수량: {formatNumber(gridConfig.orderSize, 6)} ｜ 최대 포지션: {formatNumber(gridConfig.maxPositionSize, 6)}
           </Text>
           <Text>
-            止损阈值: {(gridConfig.stopLossPct * 100).toFixed(2)}% ｜ 重启阈值: {(gridConfig.restartTriggerPct * 100).toFixed(2)}% ｜ 自动重启: {gridConfig.autoRestart ? "启用" : "关闭"}
+            손절 임계값: {(gridConfig.stopLossPct * 100).toFixed(2)}% ｜ 재시작 임계값: {(gridConfig.restartTriggerPct * 100).toFixed(2)}% ｜ 자동 재시작: {gridConfig.autoRestart ? "사용" : "해제"}
           </Text>
           <Text>
-            刷新间隔: {gridConfig.refreshIntervalMs} ms
+            새로고침 간격: {gridConfig.refreshIntervalMs} ms
           </Text>
         </Box>
         <Box flexDirection="column">
-          <Text color="greenBright">持仓</Text>
+          <Text color="greenBright">포지션</Text>
           {hasPosition ? (
             <>
               <Text>
-                当前持仓: {position.positionAmt > 0 ? "多" : "空"} ｜ 数量: {formatNumber(Math.abs(position.positionAmt), 6)} ｜ 均价: {formatNumber(position.entryPrice, 4)}
+                현재 포지션: {position.positionAmt > 0 ? "롱" : "숏"} ｜ 수량: {formatNumber(Math.abs(position.positionAmt), 6)} ｜ 평균가: {formatNumber(position.entryPrice, 4)}
               </Text>
               <Text>
-                未实现盈亏: {formatNumber(position.unrealizedProfit, 4)} ｜ 标记价: {formatNumber(position.markPrice, 4)}
+                미실현 손익: {formatNumber(position.unrealizedProfit, 4)} ｜ 마크 가격: {formatNumber(position.markPrice, 4)}
               </Text>
             </>
           ) : (
-            <Text color="gray">当前无持仓</Text>
+            <Text color="gray">현재 포지션 없음</Text>
           )}
         </Box>
       </Box>
 
       <Box flexDirection="column" marginBottom={1}>
-        <Text color="yellow">网格线</Text>
-        {gridRows.length > 0 ? <DataTable columns={gridColumns} rows={gridRows} /> : <Text color="gray">暂无网格线</Text>}
+        <Text color="yellow">그리드 라인</Text>
+        {gridRows.length > 0 ? <DataTable columns={gridColumns} rows={gridRows} /> : <Text color="gray">그리드 라인 없음</Text>}
       </Box>
 
       <Box flexDirection="column" marginBottom={1}>
-        <Text color="yellow">目标挂单</Text>
-        {desiredRows.length > 0 ? <DataTable columns={desiredColumns} rows={desiredRows} /> : <Text color="gray">暂无目标挂单</Text>}
+        <Text color="yellow">목표 지정가</Text>
+        {desiredRows.length > 0 ? <DataTable columns={desiredColumns} rows={desiredRows} /> : <Text color="gray">목표 지정가 없음</Text>}
       </Box>
 
       <Box flexDirection="column">
-        <Text color="yellow">最近事件</Text>
+        <Text color="yellow">최근 이벤트</Text>
         {lastLogs.length > 0 ? (
           lastLogs.map((item, index) => (
             <Text key={`${item.time}-${index}`}>
@@ -184,7 +184,7 @@ export function GridApp({ onExit }: GridAppProps) {
             </Text>
           ))
         ) : (
-          <Text color="gray">暂无日志</Text>
+          <Text color="gray">로그 없음</Text>
         )}
       </Box>
     </Box>

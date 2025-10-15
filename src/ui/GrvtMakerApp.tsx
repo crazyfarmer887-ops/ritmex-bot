@@ -35,7 +35,7 @@ export function GrvtMakerApp({ onExit }: GrvtMakerAppProps) {
   if (!snapshot) {
     return (
       <Box flexDirection="column">
-        <Text color="yellow">加载 GRVT Maker 策略...</Text>
+        <Text color="yellow">GRVT 메이커 전략 로딩 중...</Text>
       </Box>
     );
   }
@@ -44,7 +44,7 @@ export function GrvtMakerApp({ onExit }: GrvtMakerAppProps) {
     snapshot;
 
   const posAbs = Math.abs(position.positionAmt);
-  const posLabel = position.positionAmt > 0 ? "多" : position.positionAmt < 0 ? "空" : "平";
+  const posLabel = position.positionAmt > 0 ? "롱" : position.positionAmt < 0 ? "숏" : "중립";
   const posColor = position.positionAmt > 0 ? "green" : position.positionAmt < 0 ? "red" : "gray";
 
   // 找出止损单
@@ -68,10 +68,10 @@ export function GrvtMakerApp({ onExit }: GrvtMakerAppProps) {
   });
 
   const feedStatusText = [
-    feedStatus.account ? "✓账户" : "✗账户",
-    feedStatus.orders ? "✓订单" : "✗订单",
-    feedStatus.depth ? "✓深度" : "✗深度",
-    feedStatus.ticker ? "✓行情" : "✗行情",
+    feedStatus.account ? "✓계정" : "✗계정",
+    feedStatus.orders ? "✓주문" : "✗주문",
+    feedStatus.depth ? "✓호가" : "✗호가",
+    feedStatus.ticker ? "✓시세" : "✗시세",
   ].join(" ");
 
   return (
@@ -82,9 +82,7 @@ export function GrvtMakerApp({ onExit }: GrvtMakerAppProps) {
         </Text>
       </Box>
       <Box marginBottom={1} paddingLeft={2}>
-        <Text bold color="cyan">
-          GRVT Maker 策略 (同步买卖 + 自动止损)
-        </Text>
+        <Text bold color="cyan">GRVT 메이커 전략 (동기 매수/매도 + 자동 손절)</Text>
       </Box>
       <Box marginBottom={1}>
         <Text bold color="cyan">
@@ -94,18 +92,18 @@ export function GrvtMakerApp({ onExit }: GrvtMakerAppProps) {
 
       <Box marginBottom={1} paddingLeft={2}>
         <Text>
-          币对: <Text color="white">{snapshot.symbol}</Text> | 数据源: {feedStatusText}
+          심볼: <Text color="white">{snapshot.symbol}</Text> | 데이터: {feedStatusText}
         </Text>
       </Box>
 
       <Box marginBottom={1} paddingLeft={2}>
         <Box flexDirection="column">
           <Text>
-            <Text color="green">买价: {topBid != null ? formatPrice(topBid) : "N/A"}</Text>
+            <Text color="green">매수호가: {topBid != null ? formatPrice(topBid) : "N/A"}</Text>
             {"  "}
-            <Text color="red">卖价: {topAsk != null ? formatPrice(topAsk) : "N/A"}</Text>
+            <Text color="red">매도호가: {topAsk != null ? formatPrice(topAsk) : "N/A"}</Text>
             {"  "}
-            <Text color="yellow">价差: {spread != null ? formatPrice(spread) : "N/A"}</Text>
+            <Text color="yellow">스프레드: {spread != null ? formatPrice(spread) : "N/A"}</Text>
           </Text>
         </Box>
       </Box>
@@ -119,13 +117,13 @@ export function GrvtMakerApp({ onExit }: GrvtMakerAppProps) {
       <Box marginBottom={1} paddingLeft={2}>
         <Box flexDirection="column">
           <Text>
-            持仓: <Text color={posColor}>{posLabel}</Text> {posAbs.toFixed(4)} | 
-            均价: {formatPrice(position.entryPrice)} | 
-            PnL: <Text color={pnl >= 0 ? "green" : "red"}>{pnl.toFixed(4)}</Text>
+            보유포지션: <Text color={posColor}>{posLabel}</Text> {posAbs.toFixed(4)} | 
+            평균가: {formatPrice(position.entryPrice)} | 
+            손익: <Text color={pnl >= 0 ? "green" : "red"}>{pnl.toFixed(4)}</Text>
           </Text>
           <Text>
-            账户总未实现盈亏: <Text color={accountUnrealized >= 0 ? "green" : "red"}>{accountUnrealized.toFixed(4)}</Text> | 
-            本次交易量: {sessionVolume.toFixed(4)}
+            계정 총 미실현손익: <Text color={accountUnrealized >= 0 ? "green" : "red"}>{accountUnrealized.toFixed(4)}</Text> | 
+            세션 거래량: {sessionVolume.toFixed(4)}
           </Text>
         </Box>
       </Box>
@@ -138,9 +136,7 @@ export function GrvtMakerApp({ onExit }: GrvtMakerAppProps) {
 
       <Box marginBottom={1} paddingLeft={2}>
         <Box flexDirection="column">
-          <Text bold color="magenta">
-            入场单 ({entryOrders.length}):
-          </Text>
+          <Text bold color="magenta">진입 주문 ({entryOrders.length}):</Text>
           {entryOrders.length > 0 ? (
             entryOrders.map((o) => (
               <Text key={o.orderId}>
@@ -148,16 +144,14 @@ export function GrvtMakerApp({ onExit }: GrvtMakerAppProps) {
               </Text>
             ))
           ) : (
-            <Text color="gray">无入场挂单</Text>
+            <Text color="gray">진입 지정가 없음</Text>
           )}
         </Box>
       </Box>
 
       <Box marginBottom={1} paddingLeft={2}>
         <Box flexDirection="column">
-          <Text bold color="yellow">
-            止损单 ({stopOrders.length}):
-          </Text>
+          <Text bold color="yellow">손절 주문 ({stopOrders.length}):</Text>
           {stopOrders.length > 0 ? (
             stopOrders.map((o) => (
               <Text key={o.orderId}>
@@ -165,7 +159,7 @@ export function GrvtMakerApp({ onExit }: GrvtMakerAppProps) {
               </Text>
             ))
           ) : (
-            <Text color="gray">无止损单</Text>
+            <Text color="gray">손절 주문 없음</Text>
           )}
         </Box>
       </Box>
@@ -173,9 +167,7 @@ export function GrvtMakerApp({ onExit }: GrvtMakerAppProps) {
       {closeOrders.length > 0 && (
         <Box marginBottom={1} paddingLeft={2}>
           <Box flexDirection="column">
-            <Text bold color="blue">
-              平仓单 ({closeOrders.length}):
-            </Text>
+            <Text bold color="blue">청산 주문 ({closeOrders.length}):</Text>
             {closeOrders.map((o) => (
               <Text key={o.orderId}>
                   {o.side === "BUY" ? "🟢" : "🔴"} {o.side} @ {formatPrice(Number(o.price))} | 数量: {Number(o.origQty).toFixed(4)} (RO)
@@ -193,9 +185,7 @@ export function GrvtMakerApp({ onExit }: GrvtMakerAppProps) {
 
       <Box marginBottom={1} paddingLeft={2}>
         <Box flexDirection="column">
-          <Text bold color="white">
-            策略日志 (最近 {tradeLog.length} 条):
-          </Text>
+          <Text bold color="white">전략 로그 (최근 {tradeLog.length} 건):</Text>
           {tradeLog.slice(-8).map((entry, idx) => {
             const typeColor =
               entry.type === "error"
@@ -209,7 +199,7 @@ export function GrvtMakerApp({ onExit }: GrvtMakerAppProps) {
                 : entry.type === "close"
                 ? "blue"
                 : "white";
-            const time = new Date(entry.timestamp).toLocaleTimeString("zh-CN");
+            const time = new Date(entry.timestamp).toLocaleTimeString("ko-KR");
             return (
               <Text key={idx} color={typeColor}>
                 [{time}] {entry.detail}
@@ -222,7 +212,7 @@ export function GrvtMakerApp({ onExit }: GrvtMakerAppProps) {
       <Box marginTop={1} flexDirection="column">
         <Text color="gray">{copyright.bannerText}</Text>
         {integrityOk ? null : (
-          <Text color="red">警告: 版权校验失败，当前版本可能被篡改。</Text>
+          <Text color="red">경고: 저작권 무결성 검증 실패, 현재 버전이 변조되었을 수 있습니다.</Text>
         )}
       </Box>
     </Box>
