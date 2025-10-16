@@ -300,7 +300,15 @@ export class OffsetMakerEngine {
         const closeSide: "BUY" | "SELL" = direction === "long" ? "SELL" : "BUY";
         const priceDecimals = Math.max(0, Math.floor(Math.log10(1 / this.config.priceTick)));
         if (hasEntryPrice) {
-          const tp = calcTakeProfitPriceFromLoss(position.entryPrice, absPosition, direction, this.config.lossLimit);
+          // 动态更新止盈：当浮亏扩大时，将止盈收益目标至少提升到当前浮亏的绝对值
+          const currentBid = Number(closeBidPrice);
+          const currentAsk = Number(closeAskPrice);
+          const liveUnrealized = Number.isFinite(position.unrealizedProfit)
+            ? position.unrealizedProfit
+            : computePositionPnl(position, currentBid, currentAsk);
+          const extraRecoverUsd = liveUnrealized < 0 ? -liveUnrealized : 0;
+          const targetProfitUsd = Math.max(this.config.lossLimit, extraRecoverUsd);
+          const tp = calcTakeProfitPriceFromLoss(position.entryPrice, absPosition, direction, targetProfitUsd);
           const tpStr = formatPriceToString(tp, priceDecimals);
           desired.push({ side: closeSide, price: tpStr, amount: absPosition, reduceOnly: true });
         } else {
