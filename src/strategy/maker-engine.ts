@@ -81,6 +81,7 @@ export class MakerEngine {
   private initialOrderSnapshotReady = false;
   private initialOrderResetDone = false;
   private entryPricePendingLogged = false;
+  private lastPositionAmt = 0;
   private readinessLogged = {
     account: false,
     depth: false,
@@ -152,6 +153,12 @@ export class MakerEngine {
         }
         const position = getPosition(snapshot, this.config.symbol);
         this.sessionVolume.update(position, this.getReferencePrice());
+        // Detect position change to immediately reconcile entry/exit orders
+        if (Math.abs(position.positionAmt - this.lastPositionAmt) > EPS) {
+          const prevAbs = Math.abs(this.lastPositionAmt);
+          void this.handlePositionChange(position, prevAbs);
+          this.lastPositionAmt = position.positionAmt;
+        }
         if (!this.feedArrived.account) {
           this.tradeLog.push("info", "账户快照已同步");
           this.feedArrived.account = true;
@@ -361,6 +368,72 @@ export class MakerEngine {
     // 保持止损保护有效，仅撤掉普通限价挂单，保留触发类订单
     await this.checkRisk(position, Number(closeBidPrice), Number(closeAskPrice));
     await this.flushNonStopOrders();
+  }
+
+  /**
+   * Immediately reconcile orders when position opens or fully closes to avoid entanglement.
+   */
+  private async handlePositionChange(
+    position: PositionSnapshot,
+    prevAbsPosition: number = Math.abs(this.lastPositionAmt)
+  ): Promise<void> {
+    const absPosition = Math.abs(position.positionAmt);
+    if (absPosition > EPS) {
+      // Position opened - cancel opposite side entry orders
+      const oppositeSide: "BUY" | "SELL" = position.positionAmt > 0 ? "SELL" : "BUY";
+      const entryOrdersToCancel = this.openOrders.filter((o) => {
+        const isEntry = o.reduceOnly !== true;
+        const isOpposite = o.side === oppositeSide;
+        const typeUpper = String(o.type).toUpperCase();
+        const hasStopPrice = Number.isFinite(Number(o.stopPrice)) && Number(o.stopPrice) > 0;
+        const isNotTrigger = !typeUpper.includes("STOP") && !typeUpper.includes("TAKE_PROFIT") && !hasStopPrice;
+        return isEntry && isOpposite && isNotTrigger;
+      });
+
+      if (entryOrdersToCancel.length > 0) {
+        this.tradeLog.push("info", `持仓已开，取消对侧入场单 (${oppositeSide})`);
+        for (const order of entryOrdersToCancel) {
+          if (this.pendingCancelOrders.has(String(order.orderId))) continue;
+          this.pendingCancelOrders.add(String(order.orderId));
+          await safeCancelOrder(
+            this.exchange,
+            this.config.symbol,
+            order,
+            () => {},
+            () => {
+              this.pendingCancelOrders.delete(String(order.orderId));
+              this.openOrders = this.openOrders.filter((existing) => existing.orderId !== order.orderId);
+            },
+            () => {
+              this.pendingCancelOrders.delete(String(order.orderId));
+              this.openOrders = this.openOrders.filter((existing) => existing.orderId !== order.orderId);
+            }
+          );
+        }
+      }
+
+      // Ensure a stop-loss is present for the new position
+      const { topBid, topAsk } = getTopPrices(this.depthSnapshot);
+      if (topBid != null && topAsk != null) {
+        try {
+          await this.ensureStopLossOrder(position, (topBid + topAsk) / 2);
+        } catch {
+          /* ignore */
+        }
+      }
+    } else if (prevAbsPosition > EPS) {
+      // Position fully closed -> cancel all residual orders and reset
+      try {
+        await this.exchange.cancelAllOrders({ symbol: this.config.symbol });
+        this.pendingCancelOrders.clear();
+        unlockOperating(this.locks, this.timers, this.pending, "LIMIT");
+        this.openOrders = [];
+        this.tradeLog.push("order", "持仓已平：撤销全部挂单并回到初始做市");
+        this.entryPricePendingLogged = false;
+      } catch (error) {
+        this.tradeLog.push("error", `平仓后撤单失败: ${String(error)}`);
+      }
+    }
   }
 
   private async ensureStartupOrderReset(): Promise<boolean> {

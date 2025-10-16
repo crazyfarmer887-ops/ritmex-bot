@@ -75,6 +75,7 @@ export class OffsetMakerEngine {
   private initialOrderResetDone = false;
   private entryPricePendingLogged = false;
   private readonly rateLimit: RateLimitController;
+  private lastPositionAmt = 0;
 
   private lastBuyDepthSum10 = 0;
   private lastSellDepthSum10 = 0;
@@ -139,6 +140,12 @@ export class OffsetMakerEngine {
         }
         const position = getPosition(snapshot, this.config.symbol);
         this.sessionVolume.update(position, this.getReferencePrice());
+        // Reconcile entry/exit when position flips to avoid entanglement
+        if (Math.abs(position.positionAmt - this.lastPositionAmt) > EPS) {
+          const prevAbs = Math.abs(this.lastPositionAmt);
+          void this.handlePositionChange(position, prevAbs);
+          this.lastPositionAmt = position.positionAmt;
+        }
         this.emitUpdate();
       },
       log,
@@ -355,6 +362,59 @@ export class OffsetMakerEngine {
       ) || null);
     } catch (error) {
       this.tradeLog.push("error", `限频止损维护失败: ${String(error)}`);
+    }
+  }
+
+  private async handlePositionChange(
+    position: PositionSnapshot,
+    prevAbsPosition: number = Math.abs(this.lastPositionAmt)
+  ): Promise<void> {
+    const absPosition = Math.abs(position.positionAmt);
+    if (absPosition > EPS) {
+      // Position opened - cancel opposite side entry orders immediately
+      const oppositeSide: "BUY" | "SELL" = position.positionAmt > 0 ? "SELL" : "BUY";
+      const entryOrdersToCancel = this.openOrders.filter((o) => {
+        const isEntry = o.reduceOnly !== true;
+        const isOpposite = o.side === oppositeSide;
+        const typeUpper = String(o.type).toUpperCase();
+        const hasStopPrice = Number.isFinite(Number(o.stopPrice)) && Number(o.stopPrice) > 0;
+        const isNotTrigger = !typeUpper.includes("STOP") && !typeUpper.includes("TAKE_PROFIT") && !hasStopPrice;
+        return isEntry && isOpposite && isNotTrigger;
+      });
+      for (const order of entryOrdersToCancel) {
+        if (this.pendingCancelOrders.has(String(order.orderId))) continue;
+        this.pendingCancelOrders.add(String(order.orderId));
+        await safeCancelOrder(
+          this.exchange,
+          this.config.symbol,
+          order,
+          () => {},
+          () => {
+            this.pendingCancelOrders.delete(String(order.orderId));
+            this.openOrders = this.openOrders.filter((existing) => existing.orderId !== order.orderId);
+          },
+          () => {
+            this.pendingCancelOrders.delete(String(order.orderId));
+            this.openOrders = this.openOrders.filter((existing) => existing.orderId !== order.orderId);
+          }
+        );
+      }
+      // Ensure stop loss present
+      const { topBid, topAsk } = getTopPrices(this.depthSnapshot);
+      if (topBid != null && topAsk != null) {
+        try {
+          await this.ensureStopLossOrder(position, (topBid + topAsk) / 2);
+        } catch {}
+      }
+    } else if (prevAbsPosition > EPS) {
+      // Fully flat -> cancel all residuals
+      try {
+        await this.exchange.cancelAllOrders({ symbol: this.config.symbol });
+        this.pendingCancelOrders.clear();
+        unlockOperating(this.locks, this.timers, this.pending, "LIMIT");
+        this.openOrders = [];
+        this.entryPricePendingLogged = false;
+      } catch {}
     }
   }
 
