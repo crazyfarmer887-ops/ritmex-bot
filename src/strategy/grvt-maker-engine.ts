@@ -330,9 +330,20 @@ export class GrvtMakerEngine {
           const priceDecimals = Math.max(0, Math.floor(Math.log10(1 / this.config.priceTick)));
           const entry = Number(position.entryPrice);
 
-          // If GRVT auto TP is enabled, place a single reduce-only TP at entry * (1 ± pct),
+          // Decide TP mode: ladder vs fee-optimized (-0.01%) with optional volume-based switch
+          const autoSwitch = Boolean(this.config.grvtTpAutoSwitchEnabled);
+          let useFeeMode = Boolean(this.config.grvtAutoTpEnabled);
+          if (autoSwitch) {
+            const threshold = Number(this.config.grvtTpVolumeThresholdUsd ?? 0);
+            const vol = this.sessionVolume.value;
+            if (Number.isFinite(threshold) && threshold > 0) {
+              useFeeMode = vol >= threshold;
+            }
+          }
+
+          // If fee mode is active, place a single reduce-only TP at entry * (1 ± pct),
           // where pct defaults to -0.01% to favor maker fill with rebate.
-          if (this.config.grvtAutoTpEnabled) {
+          if (useFeeMode) {
             const pct = Number(this.config.grvtAutoTpPct ?? -0.0001);
             const factor = direction === "long" ? 1 + pct : 1 - pct;
             const target = entry * factor;
