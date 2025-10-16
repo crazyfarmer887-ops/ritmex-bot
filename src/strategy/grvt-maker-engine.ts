@@ -322,22 +322,34 @@ export class GrvtMakerEngine {
           desired.push({ side: "SELL", price: askPrice, amount: this.config.tradeAmount, reduceOnly: false });
         }
       } else {
-        // Has position: place reduce-only TP ladder (limit-only) while waiting for stop-loss
+        // Has position: place reduce-only TP according to config while waiting for stop-loss
         const hasEntryPrice = Number.isFinite(position.entryPrice) && Math.abs(position.entryPrice) > 1e-8;
         const direction: "long" | "short" = position.positionAmt > 0 ? "long" : "short";
         const closeSide: "BUY" | "SELL" = direction === "long" ? "SELL" : "BUY";
         if (hasEntryPrice) {
           const priceDecimals = Math.max(0, Math.floor(Math.log10(1 / this.config.priceTick)));
           const entry = Number(position.entryPrice);
-          const start = Math.max(0, this.config.tpLadderStartUsd);
-          const step = Math.max(0, this.config.tpLadderStepUsd);
-          const count = Math.max(1, Math.floor(this.config.tpLadderCount));
-          const perOrderQty = absPosition / count;
-          for (let i = 0; i < count; i += 1) {
-            const offset = start + step * i;
-            const target = direction === "long" ? entry + offset : entry - offset;
+
+          // If GRVT auto TP is enabled, place a single reduce-only TP at entry * (1 ± pct),
+          // where pct defaults to -0.01% to favor maker fill with rebate.
+          if (this.config.grvtAutoTpEnabled) {
+            const pct = Number(this.config.grvtAutoTpPct ?? -0.0001);
+            const factor = direction === "long" ? 1 + pct : 1 - pct;
+            const target = entry * factor;
             const priceStr = formatPriceToString(target, priceDecimals);
-            desired.push({ side: closeSide, price: priceStr, amount: perOrderQty, reduceOnly: true });
+            desired.push({ side: closeSide, price: priceStr, amount: absPosition, reduceOnly: true });
+          } else {
+            // Default behavior: TP ladder in quote increments
+            const start = Math.max(0, this.config.tpLadderStartUsd);
+            const step = Math.max(0, this.config.tpLadderStepUsd);
+            const count = Math.max(1, Math.floor(this.config.tpLadderCount));
+            const perOrderQty = absPosition / count;
+            for (let i = 0; i < count; i += 1) {
+              const offset = start + step * i;
+              const target = direction === "long" ? entry + offset : entry - offset;
+              const priceStr = formatPriceToString(target, priceDecimals);
+              desired.push({ side: closeSide, price: priceStr, amount: perOrderQty, reduceOnly: true });
+            }
           }
         } else {
           const closePrice = closeSide === "SELL" ? closeAskPrice : closeBidPrice;
