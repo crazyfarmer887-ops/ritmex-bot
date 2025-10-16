@@ -95,6 +95,10 @@ export interface MakerConfig {
   tpLadderStartUsd?: number; // starting offset above/below entry to place first TP
   tpLadderStepUsd?: number;  // increment between ladder rungs
   tpLadderCount?: number;    // number of rungs to place
+  // GRVT-specific automatic take-profit by percent of entry
+  // Example: -0.0001 => -0.01% vs entry (slightly below for longs, above for shorts)
+  grvtAutoTpEnabled?: boolean;
+  grvtAutoTpPct?: number;
 }
 
 export const makerConfig: MakerConfig = {
@@ -128,6 +132,14 @@ export const makerConfig: MakerConfig = {
     1,
     Math.floor(parseNumber(process.env.MAKER_TP_LADDER_COUNT ?? process.env.TP_LADDER_COUNT, 20))
   ),
+  grvtAutoTpEnabled: (() => {
+    const raw = process.env.GRVT_AUTO_TP_ENABLED;
+    if (raw == null || raw === "") return false; // default disabled unless explicitly enabled
+    const n = raw.trim().toLowerCase();
+    return n === "1" || n === "true" || n === "yes" || n === "on";
+  })(),
+  // Default -0.0001 => -0.01%
+  grvtAutoTpPct: parseNumber(process.env.GRVT_AUTO_TP_PCT, -0.0001),
 };
 
 export interface BasisArbConfig {
