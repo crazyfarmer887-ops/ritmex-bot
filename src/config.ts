@@ -99,6 +99,10 @@ export interface MakerConfig {
   // Example: -0.0001 => -0.01% vs entry (slightly below for longs, above for shorts)
   grvtAutoTpEnabled?: boolean;
   grvtAutoTpPct?: number;
+  // Volume-based auto switch between ladder TP and fee-optimized TP
+  // When enabled, if sessionVolume (USDT) >= threshold, switch to fee TP; else ladder.
+  grvtTpAutoSwitchEnabled?: boolean;
+  grvtTpVolumeThresholdUsd?: number;
 }
 
 export const makerConfig: MakerConfig = {
@@ -140,6 +144,13 @@ export const makerConfig: MakerConfig = {
   })(),
   // Default -0.0001 => -0.01%
   grvtAutoTpPct: parseNumber(process.env.GRVT_AUTO_TP_PCT, -0.0001),
+  grvtTpAutoSwitchEnabled: (() => {
+    const raw = process.env.GRVT_TP_VOLUME_AUTOSWITCH_ENABLED;
+    if (raw == null || raw === "") return false;
+    const n = raw.trim().toLowerCase();
+    return n === "1" || n === "true" || n === "yes" || n === "on";
+  })(),
+  grvtTpVolumeThresholdUsd: parseNumber(process.env.GRVT_TP_VOLUME_THRESHOLD_USD, 0),
 };
 
 export interface BasisArbConfig {
