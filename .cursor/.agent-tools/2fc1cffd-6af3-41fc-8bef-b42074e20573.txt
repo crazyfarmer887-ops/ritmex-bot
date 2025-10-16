@@ -1,0 +1,228 @@
+
+ RUN  v3.2.4 /workspace
+
+ ❯ tests/order-coordinator.test.ts (9 tests | 1 failed) 13ms
+   ✓ order-coordinator > deduplicates orders by type and side 4ms
+   ✓ order-coordinator > places limit orders and records pending id 1ms
+   ✓ order-coordinator > places market order and unlocks after completion 0ms
+   ✓ order-coordinator > places stop loss order only when valid 1ms
+   ✓ order-coordinator > places trailing stop order 1ms
+   ✓ order-coordinator > market close cancels open orders before placing close order 1ms
+   ✓ order-coordinator > rounds reduce-only quantities up to at least one step to sweep dust 1ms
+   × order-coordinator > places atomic dual with optional stops using bulk when available 4ms
+     → (0 , placeAtomicDualWithStops) is not a function
+   ✓ order-coordinator > unlockOperating clears timers and pending 0ms
+ ✓ tests/grvt-maker-engine.test.ts (4 tests) 21ms
+ ❯ tests/grid-engine.test.ts (8 tests | 8 failed) 31ms
+   × GridEngine > creates geometric desired orders when running in both directions 23ms
+     → engine.computeDesiredOrders is not a function
+   × GridEngine > limits sell orders for long-only direction when no position is available 1ms
+     → engine.computeDesiredOrders is not a function
+   × GridEngine > does not repopulate the same buy level until exposure is released 0ms
+     → engine.computeDesiredOrders is not a function
+   × GridEngine > keeps level side assignments stable regardless of price 0ms
+     → engine.computeDesiredOrders is not a function
+   × GridEngine > limits active sell orders by remaining short headroom 0ms
+     → engine.computeDesiredOrders is not a function
+   × GridEngine > places reduce-only orders to close existing exposures 0ms
+     → Cannot read properties of undefined (reading 'set')
+   × GridEngine > restores exposures from existing reduce-only orders on restart 1ms
+     → engine.syncGrid is not a function
+   × GridEngine > halts the grid and closes positions when stop loss triggers 4ms
+     → expected [] to have a length of 1 but got +0
+ ❯ tests/basis-arb-engine.test.ts (1 test | 1 failed) 18ms
+   × BasisArbEngine > computes spreads after receiving futures depth and spot quotes 17ms
+     → Missing required environment variable ASTER_API_KEY
+ ✓ tests/aster-spot-rest.test.ts (3 tests) 7ms
+ ✓ tests/strategy-utils.test.ts (7 tests) 3ms
+ ❯ tests/lighter/signer.test.ts (1 test | 1 failed) 7ms
+   × LighterSigner > produces deterministic create order signature 7ms
+     → "undefined" is not valid JSON
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/backpack-gateway.test.ts [ tests/backpack-gateway.test.ts ]
+Error: Cannot find package 'ccxt' imported from '/workspace/src/exchanges/backpack/gateway.ts'
+ ❯ src/exchanges/backpack/gateway.ts:1:1
+      1| import ccxt, { type Balances, type Order as CcxtOrder, type OrderBook …
+       | ^
+      2| import type {
+      3|   AsterAccountSnapshot,
+
+Caused by: Error: Failed to load url ccxt (resolved id: ccxt) in /workspace/src/exchanges/backpack/gateway.ts. Does the file exist?
+ ❯ loadAndTransform ../home/ubuntu/.npm/_npx/69c381f8ad94b576/node_modules/vite/dist/node/chunks/dep-B0GuR2De.js:26035:33
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/14]⎯
+
+ FAIL  tests/config.test.ts [ tests/config.test.ts ]
+ FAIL  tests/exchange-factory.test.ts [ tests/exchange-factory.test.ts ]
+Error: Cannot find package 'axios' imported from '/workspace/src/exchanges/grvt/gateway.ts'
+ ❯ src/exchanges/grvt/gateway.ts:3:1
+      1| import { setInterval, clearInterval } from "timers";
+      2| import { randomInt } from "crypto";
+      3| import axios, { AxiosHeaders } from "axios";
+       | ^
+      4| import { TDG, MDG } from "@grvt/client";
+      5| import { WS, EStream, type TWSRequest } from "@grvt/client/ws";
+
+Caused by: Error: Failed to load url axios (resolved id: axios) in /workspace/src/exchanges/grvt/gateway.ts. Does the file exist?
+ ❯ loadAndTransform ../home/ubuntu/.npm/_npx/69c381f8ad94b576/node_modules/vite/dist/node/chunks/dep-B0GuR2De.js:26035:33
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/14]⎯
+
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 11 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/basis-arb-engine.test.ts > BasisArbEngine > computes spreads after receiving futures depth and spot quotes
+Error: Missing required environment variable ASTER_API_KEY
+ ❯ requireEnv src/exchanges/aster/client.ts:50:11
+     48| function requireEnv(value: string | undefined, key: string): string {
+     49|   if (!value) {
+     50|     throw new Error(`Missing required environment variable ${key}`);
+       |           ^
+     51|   }
+     52|   return value;
+ ❯ new AsterRestClient src/exchanges/aster/client.ts:758:19
+ ❯ new BasisArbEngine src/strategy/basis-arb-engine.ts:112:48
+ ❯ tests/basis-arb-engine.test.ts:75:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/14]⎯
+
+ FAIL  tests/grid-engine.test.ts > GridEngine > creates geometric desired orders when running in both directions
+TypeError: engine.computeDesiredOrders is not a function
+ ❯ tests/grid-engine.test.ts:169:37
+    167| 
+    168|     // use internal syncGrid to generate orders without waiting for ti…
+    169|     const desired = (engine as any).computeDesiredOrders(150) as Array…
+       |                                     ^
+    170|     expect(desired).toHaveLength(3);
+    171|     const buyOrders = desired.filter((order) => order.side === "BUY");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/14]⎯
+
+ FAIL  tests/grid-engine.test.ts > GridEngine > limits sell orders for long-only direction when no position is available
+TypeError: engine.computeDesiredOrders is not a function
+ ❯ tests/grid-engine.test.ts:189:37
+    187|     adapter.emitOrders([]);
+    188| 
+    189|     const desired = (engine as any).computeDesiredOrders(150) as Array…
+       |                                     ^
+    190|     const sells = desired.filter((order) => order.side === "SELL");
+    191|     const buys = desired.filter((order) => order.side === "BUY");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/14]⎯
+
+ FAIL  tests/grid-engine.test.ts > GridEngine > does not repopulate the same buy level until exposure is released
+TypeError: engine.computeDesiredOrders is not a function
+ ❯ tests/grid-engine.test.ts:206:44
+    204|     adapter.emitOrders([]);
+    205| 
+    206|     const desiredInitial = (engine as any).computeDesiredOrders(150) a…
+       |                                            ^
+    207|     const nearestBuy = desiredInitial.find((order) => order.side === "…
+    208|     expect(nearestBuy).toBeTruthy();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/14]⎯
+
+ FAIL  tests/grid-engine.test.ts > GridEngine > keeps level side assignments stable regardless of price
+TypeError: engine.computeDesiredOrders is not a function
+ ❯ tests/grid-engine.test.ts:231:41
+    229|     adapter.emitOrders([]);
+    230| 
+    231|     const desiredHigh = (engine as any).computeDesiredOrders(2.45) as …
+       |                                         ^
+    232|     expect(desiredHigh.every((order) => {
+    233|       const isBuyLevel = order.level <= Math.floor((baseConfig.gridLev…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/14]⎯
+
+ FAIL  tests/grid-engine.test.ts > GridEngine > limits active sell orders by remaining short headroom
+TypeError: engine.computeDesiredOrders is not a function
+ ❯ tests/grid-engine.test.ts:253:41
+    251|     adapter.emitOrders([]);
+    252| 
+    253|     const desiredFull = (engine as any).computeDesiredOrders(2.1) as A…
+       |                                         ^
+    254|     const sellCountFull = desiredFull.filter((order) => order.side ===…
+    255|     expect(sellCountFull).toBeGreaterThan(0);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/14]⎯
+
+ FAIL  tests/grid-engine.test.ts > GridEngine > places reduce-only orders to close existing exposures
+TypeError: Cannot read properties of undefined (reading 'set')
+ ❯ tests/grid-engine.test.ts:277:34
+    275| 
+    276|     const buyLevel = (engine as any).buyLevelIndices.slice(-1)[0];
+    277|     (engine as any).longExposure.set(buyLevel, baseConfig.orderSize);
+       |                                  ^
+    278| 
+    279|     const desired = (engine as any).computeDesiredOrders(2.05) as Arra…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/14]⎯
+
+ FAIL  tests/grid-engine.test.ts > GridEngine > restores exposures from existing reduce-only orders on restart
+TypeError: engine.syncGrid is not a function
+ ❯ tests/grid-engine.test.ts:327:27
+    325|     });
+    326| 
+    327|     await (engine as any).syncGrid(150);
+       |                           ^
+    328| 
+    329|     const longExposure: Map<number, number> = (engine as any).longExpo…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/14]⎯
+
+ FAIL  tests/grid-engine.test.ts > GridEngine > halts the grid and closes positions when stop loss triggers
+AssertionError: expected [] to have a length of 1 but got +0
+
+- Expected
++ Received
+
+- 1
++ 0
+
+ ❯ tests/grid-engine.test.ts:369:34
+    367| 
+    368|     expect(adapter.cancelAllCount).toBe(1);
+    369|     expect(adapter.marketOrders).toHaveLength(1);
+       |                                  ^
+    370|     expect(engine.getSnapshot().running).toBe(false);
+    371| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/14]⎯
+
+ FAIL  tests/order-coordinator.test.ts > order-coordinator > places atomic dual with optional stops using bulk when available
+TypeError: (0 , placeAtomicDualWithStops) is not a function
+ ❯ tests/order-coordinator.test.ts:244:26
+    242|     const pending: OrderPendingMap = {};
+    243|     const log = vi.fn();
+    244|     const result = await placeAtomicDualWithStops(
+       |                          ^
+    245|       adapter,
+    246|       "BTCUSDT",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/14]⎯
+
+ FAIL  tests/lighter/signer.test.ts > LighterSigner > produces deterministic create order signature
+SyntaxError: "undefined" is not valid JSON
+ ❯ tests/lighter/signer.test.ts:31:26
+     29|     });
+     30| 
+     31|     const payload = JSON.parse(signed.txInfo);
+       |                          ^
+     32|     expect(payload.AccountIndex).toBe(65);
+     33|     expect(payload.ApiKeyIndex).toBe(3);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/14]⎯
+
+
+ Test Files  7 failed | 3 passed (10)
+      Tests  11 failed | 22 passed (33)
+   Start at  07:48:14
+   Duration  972ms (transform 417ms, setup 0ms, collect 524ms, tests 100ms, environment 1ms, prepare 642ms)
+
+npm notice
+npm notice New major version of npm available! 10.9.3 -> 11.6.2
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.6.2
+npm notice To update run: npm install -g npm@11.6.2
+npm notice
