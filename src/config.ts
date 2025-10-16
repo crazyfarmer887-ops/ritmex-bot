@@ -134,7 +134,8 @@ export const makerConfig: MakerConfig = {
   ),
   tpLadderCount: Math.max(
     1,
-    Math.floor(parseNumber(process.env.MAKER_TP_LADDER_COUNT ?? process.env.TP_LADDER_COUNT, 20))
+    // Default to a single reduce-only TP to avoid pre-placing many orders
+    Math.floor(parseNumber(process.env.MAKER_TP_LADDER_COUNT ?? process.env.TP_LADDER_COUNT, 1))
   ),
   grvtAutoTpEnabled: (() => {
     const raw = process.env.GRVT_AUTO_TP_ENABLED;
