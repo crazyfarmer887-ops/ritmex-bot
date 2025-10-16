@@ -152,11 +152,14 @@ export async function placeOrder(
   if (!enforceMarkPriceGuard(side, priceNum, guard, log, "限价单")) return;
   const priceTick = opts?.priceTick ?? 0.1;
   const qtyStep = opts?.qtyStep ?? 0.001;
+  const rawQty = roundQtyDownToStep(amount, qtyStep);
+  // For reduce-only closes, ensure at least one minimum step to sweep dust
+  const finalQty = reduceOnly ? Math.max(rawQty, qtyStep) : rawQty;
   const params: CreateOrderParams = {
     symbol,
     side,
     type,
-    quantity: roundQtyDownToStep(amount, qtyStep),
+    quantity: finalQty,
     price: priceNum, // 直接使用字符串转换的数字，不再格式化
     timeInForce: "GTX",
   };
@@ -216,15 +219,21 @@ export async function placeMarketOrder(
     return undefined;
   }
   const qtyStep = opts?.qtyStep ?? 0.001;
+  const rawQty = roundQtyDownToStep(amount, qtyStep);
+  const finalQty = reduceOnly ? Math.max(rawQty, qtyStep) : rawQty;
   const params: CreateOrderParams = {
     symbol,
     side,
     type: "LIMIT",
-    quantity: roundQtyDownToStep(amount, qtyStep),
+    quantity: finalQty,
     price: limitPrice,
     timeInForce: "IOC",
   };
-  if (reduceOnly) params.reduceOnly = "true";
+  if (reduceOnly) {
+    params.reduceOnly = "true";
+    // Hint exchanges that support close-position semantics
+    params.closePosition = "true";
+  }
   await deduplicateOrders(adapter, symbol, openOrders, locks, timers, pendings, "LIMIT", side, log);
   lockOperating(locks, timers, pendings, lockKey, log);
   try {
@@ -384,14 +393,19 @@ export async function marketClose(
     return;
   }
 
+  const defaultStep = 0.001;
+  const qtyStep = opts?.qtyStep ?? defaultStep;
+  const rawQty = roundQtyDownToStep(quantity, qtyStep);
+  const finalQty = Math.max(rawQty, qtyStep);
   const params: CreateOrderParams = {
     symbol,
     side,
     type: "LIMIT",
-    quantity,
+    quantity: finalQty,
     price: limitPrice,
     timeInForce: "IOC",
     reduceOnly: "true",
+    closePosition: "true",
   };
 
   await deduplicateOrders(adapter, symbol, openOrders, locks, timers, pendings, "LIMIT", side, log);

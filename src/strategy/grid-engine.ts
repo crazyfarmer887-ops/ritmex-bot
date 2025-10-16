@@ -449,7 +449,7 @@ export class GridEngine {
         side,
         amount,
         this.log,
-        false,
+        true,
         undefined,
         { qtyStep: this.config.qtyStep }
       );

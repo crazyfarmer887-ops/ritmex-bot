@@ -176,6 +176,55 @@ describe("order-coordinator", () => {
     expect(log).toHaveBeenCalledWith("close", expect.stringContaining("市价平仓"));
   });
 
+  it("rounds reduce-only quantities up to at least one step to sweep dust", async () => {
+    const createOrder = vi.fn(async (params) => ({ ...baseOrder, orderId: 99, reduceOnly: true, closePosition: true, type: params.type, price: String(params.price), origQty: String(params.quantity) }));
+    const adapter = createMockExchange({ createOrder });
+    const locks: OrderLockMap = {};
+    const timers: OrderTimerMap = {};
+    const pending: OrderPendingMap = {};
+    const log = vi.fn();
+    // place LIMIT reduce-only with tiny qty below step -> expect at least 0.001
+    await placeOrder(
+      adapter,
+      "BTCUSDT",
+      [],
+      locks,
+      timers,
+      pending,
+      "SELL",
+      100,
+      0.0000001,
+      log,
+      true,
+      undefined,
+      { priceTick: 0.1, qtyStep: 0.001 }
+    );
+    expect(createOrder).toHaveBeenCalled();
+    const call = createOrder.mock.calls[0][0];
+    expect(call.reduceOnly).toBe("true");
+    expect(call.quantity).toBeGreaterThanOrEqual(0.001);
+
+    // marketClose with tiny qty -> expect at least one step and closePosition hint
+    await marketClose(
+      adapter,
+      "BTCUSDT",
+      [],
+      locks,
+      timers,
+      pending,
+      "BUY",
+      0.0000005,
+      log,
+      undefined,
+      { qtyStep: 0.001 }
+    );
+    const call2 = createOrder.mock.calls[1][0];
+    expect(call2.timeInForce).toBe("IOC");
+    expect(call2.reduceOnly).toBe("true");
+    expect(call2.closePosition).toBe("true");
+    expect(call2.quantity).toBeGreaterThanOrEqual(0.001);
+  });
+
   it("places atomic dual with optional stops using bulk when available", async () => {
     const createdOrders: AsterOrder[] = [
       { ...baseOrder, orderId: 11, side: "BUY", price: "100", type: "LIMIT" },
