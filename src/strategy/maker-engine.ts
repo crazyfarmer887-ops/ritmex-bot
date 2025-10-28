@@ -15,7 +15,7 @@ import type { PositionSnapshot } from "../utils/strategy";
 import { computePositionPnl } from "../utils/pnl";
 import { getTopPrices, getMidOrLast } from "../utils/price";
 import { calcStopLossPrice } from "../utils/strategy";
-import { marketClose, placeStopLossOrder, placeOrder, unlockOperating, placeAtomicDualWithStops } from "../core/order-coordinator";
+import { marketClose, placeStopLossOrder, placeOrder, unlockOperating, placeAtomicDualWithStops, placeOrdersSimultaneously } from "../core/order-coordinator";
 import type { OrderLockMap, OrderPendingMap, OrderTimerMap } from "../core/order-coordinator";
 import { makeOrderPlan } from "../core/lib/order-plan";
 import { safeCancelOrder } from "../core/lib/orders";
@@ -432,9 +432,45 @@ export class MakerEngine {
       );
     }
 
-    for (const target of toPlace) {
-      if (!target) continue;
-      if (target.amount < EPS) continue;
+    // Group orders by whether they are reduceOnly or not
+    const openingOrders = toPlace.filter(t => t && !t.reduceOnly && t.amount >= EPS);
+    const closingOrders = toPlace.filter(t => t && t.reduceOnly && t.amount >= EPS);
+    
+    // Place opening orders (BUY and SELL) simultaneously
+    if (openingOrders.length > 0) {
+      try {
+        await placeOrdersSimultaneously(
+          this.exchange,
+          this.config.symbol,
+          this.openOrders,
+          this.locks,
+          this.timers,
+          this.pending,
+          openingOrders,
+          (type, detail) => this.tradeLog.push(type, detail),
+          {
+            markPrice: getPosition(this.accountSnapshot, this.config.symbol).markPrice,
+            maxPct: this.config.maxCloseSlippagePct,
+          },
+          {
+            priceTick: this.config.priceTick,
+            qtyStep: 0.001,
+          }
+        );
+      } catch (error) {
+        if (isInsufficientBalanceError(error)) {
+          this.registerInsufficientBalance(error);
+          return;
+        }
+        this.tradeLog.push(
+          "error",
+          `동시 주문 실패: ${extractMessage(error)}`
+        );
+      }
+    }
+    
+    // Place closing orders separately if any
+    for (const target of closingOrders) {
       try {
         await placeOrder(
           this.exchange,
@@ -444,7 +480,7 @@ export class MakerEngine {
           this.timers,
           this.pending,
           target.side,
-          target.price, // 已经是字符串价格
+          target.price,
           target.amount,
           (type, detail) => this.tradeLog.push(type, detail),
           target.reduceOnly,
@@ -454,7 +490,7 @@ export class MakerEngine {
           },
           {
             priceTick: this.config.priceTick,
-            qtyStep: 0.001, // 默认数量步长
+            qtyStep: 0.001,
           }
         );
       } catch (error) {
@@ -464,7 +500,7 @@ export class MakerEngine {
         }
         this.tradeLog.push(
           "error",
-          `挂单失败(${target.side} ${target.price}): ${extractMessage(error)}`
+          `평仓 주문 실패(${target.side} ${target.price}): ${extractMessage(error)}`
         );
       }
     }
